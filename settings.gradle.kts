@@ -23,6 +23,8 @@ dependencyResolutionManagement {
                 includeModule("com.github.matrix-org", "matrix-analytics-events")
                 // Required transitively by androidx.media3:media3-exoplayer-midi for MIDI playback.
                 includeModule("com.github.philburk", "jsyn")
+                // sherpa-onnx on-device speech-to-text (Whisper ONNX models).
+                includeModule("com.github.k2-fsa.sherpa-onnx", "sherpa-onnx")
             }
         }
         google()
