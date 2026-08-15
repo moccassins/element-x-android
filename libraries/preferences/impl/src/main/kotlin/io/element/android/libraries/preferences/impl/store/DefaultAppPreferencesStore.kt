@@ -34,6 +34,7 @@ private val themeKey = stringPreferencesKey("theme")
 private val hideInviteAvatarsKey = booleanPreferencesKey("hideInviteAvatars")
 private val timelineMediaPreviewValueKey = stringPreferencesKey("timelineMediaPreviewValue")
 private val liveLocationMinimumDistanceUpdateKey = intPreferencesKey("liveLocationMinimumDistanceUpdate")
+private val voiceTranscriptionEnabledKey = booleanPreferencesKey("voiceTranscriptionEnabled")
 private val logLevelKey = stringPreferencesKey("logLevel")
 private val traceLogPacksKey = stringPreferencesKey("traceLogPacks")
 private val messageSoundUriKey = stringPreferencesKey("notificationMessageSoundUri")
@@ -100,6 +101,18 @@ class DefaultAppPreferencesStore(
     override fun getLiveLocationMinimumDistanceInMetersUpdateFlow(): Flow<Int> {
         return store.data.map { prefs ->
             prefs[liveLocationMinimumDistanceUpdateKey] ?: 10
+        }
+    }
+
+    override suspend fun setVoiceTranscriptionEnabled(enabled: Boolean) {
+        store.edit { prefs ->
+            prefs[voiceTranscriptionEnabledKey] = enabled
+        }
+    }
+
+    override fun getVoiceTranscriptionEnabledFlow(): Flow<Boolean> {
+        return store.data.map { prefs ->
+            prefs[voiceTranscriptionEnabledKey] ?: false
         }
     }
 

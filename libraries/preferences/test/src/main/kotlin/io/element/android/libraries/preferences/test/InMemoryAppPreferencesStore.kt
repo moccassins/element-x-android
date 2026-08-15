@@ -25,6 +25,7 @@ class InMemoryAppPreferencesStore(
     timelineMediaPreviewValue: MediaPreviewValue? = null,
     theme: String? = null,
     liveLocationMinimumDistanceUpdate: Int = 10,
+    voiceTranscriptionEnabled: Boolean = false,
     logLevel: LogLevel = LogLevel.INFO,
     traceLogPacks: Set<TraceLogPack> = emptySet(),
     messageSound: NotificationSound = NotificationSound.SystemDefault,
@@ -38,6 +39,7 @@ class InMemoryAppPreferencesStore(
     private val customElementCallBaseUrl = MutableStateFlow(customElementCallBaseUrl)
     private val theme = MutableStateFlow(theme)
     private val liveLocationMinimumDistanceUpdate = MutableStateFlow(liveLocationMinimumDistanceUpdate)
+    private val voiceTranscriptionEnabled = MutableStateFlow(voiceTranscriptionEnabled)
     private val logLevel = MutableStateFlow(logLevel)
     private val tracingLogPacks = MutableStateFlow(traceLogPacks)
     private val hideInviteAvatars = MutableStateFlow(hideInviteAvatars)
@@ -79,6 +81,14 @@ class InMemoryAppPreferencesStore(
 
     override fun getLiveLocationMinimumDistanceInMetersUpdateFlow(): Flow<Int> {
         return liveLocationMinimumDistanceUpdate
+    }
+
+    override suspend fun setVoiceTranscriptionEnabled(enabled: Boolean) {
+        voiceTranscriptionEnabled.value = enabled
+    }
+
+    override fun getVoiceTranscriptionEnabledFlow(): Flow<Boolean> {
+        return voiceTranscriptionEnabled
     }
 
     @Deprecated("Use MediaPreviewService instead. Kept only for migration.")

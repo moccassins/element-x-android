@@ -54,4 +54,18 @@ class DefaultAppPreferencesStoreTest {
 
         assertThat(store.getLiveLocationMinimumDistanceInMetersUpdateFlow().first()).isEqualTo(25)
     }
+
+    @Test
+    fun `voice transcription defaults to disabled and persists updates`() = runTest {
+        val store = DefaultAppPreferencesStore(
+            buildMeta = buildMeta,
+            preferenceDataStoreFactory = FakePreferenceDataStoreFactory(),
+        )
+
+        assertThat(store.getVoiceTranscriptionEnabledFlow().first()).isFalse()
+
+        store.setVoiceTranscriptionEnabled(true)
+
+        assertThat(store.getVoiceTranscriptionEnabledFlow().first()).isTrue()
+    }
 }

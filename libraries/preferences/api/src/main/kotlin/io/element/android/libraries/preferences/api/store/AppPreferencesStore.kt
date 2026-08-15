@@ -26,6 +26,9 @@ interface AppPreferencesStore {
     suspend fun setLiveLocationMinimumDistanceInMetersUpdate(value: Int)
     fun getLiveLocationMinimumDistanceInMetersUpdateFlow(): Flow<Int>
 
+    suspend fun setVoiceTranscriptionEnabled(enabled: Boolean)
+    fun getVoiceTranscriptionEnabledFlow(): Flow<Boolean>
+
     @Deprecated("Use MediaPreviewService instead. Kept only for migration.")
     suspend fun setHideInviteAvatars(hide: Boolean?)
     @Deprecated("Use MediaPreviewService instead. Kept only for migration.")
