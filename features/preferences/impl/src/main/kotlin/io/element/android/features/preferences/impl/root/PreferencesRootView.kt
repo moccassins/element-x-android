@@ -68,6 +68,7 @@ fun PreferencesRootView(
     onOpenAbout: () -> Unit,
     onOpenDeveloperSettings: () -> Unit,
     onOpenAdvancedSettings: () -> Unit,
+    onOpenVoiceTranscription: () -> Unit,
     onOpenLabs: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onOpenUserProfile: (MatrixUser) -> Unit,
@@ -126,6 +127,7 @@ fun PreferencesRootView(
                 onOpenAnalytics = onOpenAnalytics,
                 onOpenRageShake = onOpenRageShake,
                 onOpenAdvancedSettings = onOpenAdvancedSettings,
+                onOpenVoiceTranscription = onOpenVoiceTranscription,
                 onOpenDeveloperSettings = onOpenDeveloperSettings,
                 onOpenLabs = onOpenLabs,
                 onSignOutClick = onSignOutClick,
@@ -286,6 +288,7 @@ private fun ColumnScope.GeneralSection(
     onOpenAnalytics: () -> Unit,
     onOpenRageShake: () -> Unit,
     onOpenAdvancedSettings: () -> Unit,
+    onOpenVoiceTranscription: () -> Unit,
     onOpenLabs: () -> Unit,
     onOpenDeveloperSettings: () -> Unit,
     onSignOutClick: () -> Unit,
@@ -295,6 +298,11 @@ private fun ColumnScope.GeneralSection(
         content = { Text(stringResource(id = CommonStrings.common_advanced_settings)) },
         leadingContent = ListItemContent.Icon(IconSource.Vector(CompoundIcons.Settings())),
         onClick = onOpenAdvancedSettings,
+    )
+    ListItem(
+        content = { Text(stringResource(id = R.string.screen_preferences_voice_transcription)) },
+        leadingContent = ListItemContent.Icon(IconSource.Vector(CompoundIcons.Audio())),
+        onClick = onOpenVoiceTranscription,
     )
     if (state.showLabsItem) {
         ListItem(
@@ -397,6 +405,7 @@ private fun ContentToPreview(state: PreferencesRootState) {
         onOpenRageShake = {},
         onOpenDeveloperSettings = {},
         onOpenAdvancedSettings = {},
+        onOpenVoiceTranscription = {},
         onOpenLabs = {},
         onOpenAbout = {},
         onSecureBackupClick = {},

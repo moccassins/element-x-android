@@ -272,7 +272,8 @@ class PreferencesRootViewTest : RobolectricTest() {
                 ),
                 onOpenAbout = callback,
             )
-            clickOn(CommonStrings.common_about)
+            val text = activity!!.getString(CommonStrings.common_about)
+            onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
         }
     }
 
@@ -329,7 +330,8 @@ class PreferencesRootViewTest : RobolectricTest() {
                 ),
                 onOpenLabs = callback,
             )
-            clickOn(R.string.screen_labs_title)
+            val text = activity!!.getString(R.string.screen_labs_title)
+            onNode(hasText(text) and hasClickAction()).performScrollTo().performClick()
         }
     }
 
@@ -479,6 +481,7 @@ private fun AndroidComposeUiTest<ComponentActivity>.setView(
             onOpenAbout = onOpenAbout,
             onOpenDeveloperSettings = onOpenDeveloperSettings,
             onOpenAdvancedSettings = onOpenAdvancedSettings,
+            onOpenVoiceTranscription = {},
             onOpenLabs = onOpenLabs,
             onOpenNotificationSettings = onOpenNotificationSettings,
             onOpenUserProfile = onOpenUserProfile,

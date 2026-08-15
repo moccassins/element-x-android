@@ -35,6 +35,7 @@ import io.element.android.features.preferences.impl.notifications.NotificationSe
 import io.element.android.features.preferences.impl.notifications.edit.EditDefaultNotificationSettingNode
 import io.element.android.features.preferences.impl.root.PreferencesRootNode
 import io.element.android.features.preferences.impl.user.editprofile.EditUserProfileNode
+import io.element.android.features.voicetranscription.impl.settings.SttSettingsNode
 import io.element.android.libraries.architecture.BackstackView
 import io.element.android.libraries.architecture.BaseFlowNode
 import io.element.android.libraries.architecture.appyx.canPop
@@ -76,6 +77,9 @@ class PreferencesFlowNode(
 
         @Parcelize
         data object AdvancedSettings : NavTarget
+
+        @Parcelize
+        data object VoiceTranscription : NavTarget
 
         @Parcelize
         data object Labs : NavTarget
@@ -159,6 +163,10 @@ class PreferencesFlowNode(
                         backstack.push(NavTarget.AdvancedSettings)
                     }
 
+                    override fun navigateToVoiceTranscription() {
+                        backstack.push(NavTarget.VoiceTranscription)
+                    }
+
                     override fun navigateToLabs() {
                         backstack.push(NavTarget.Labs)
                     }
@@ -219,6 +227,9 @@ class PreferencesFlowNode(
             }
             NavTarget.AnalyticsSettings -> {
                 createNode<AnalyticsSettingsNode>(buildContext)
+            }
+            NavTarget.VoiceTranscription -> {
+                createNode<SttSettingsNode>(buildContext)
             }
             NavTarget.NotificationSettings -> {
                 val notificationSettingsCallback = object : NotificationSettingsNode.Callback {

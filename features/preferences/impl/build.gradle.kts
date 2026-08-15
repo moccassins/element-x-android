@@ -80,6 +80,7 @@ dependencies {
     implementation(projects.features.logout.api)
     implementation(projects.features.deactivation.api)
     implementation(projects.features.home.api)
+    implementation(projects.features.voicetranscription.impl)
     implementation(projects.features.invite.api)
     implementation(projects.libraries.emoji.api)
     implementation(projects.services.analytics.api)
