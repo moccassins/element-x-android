@@ -18,11 +18,9 @@ import timber.log.Timber
 import java.io.File
 
 /**
- * Thin, stateful wrapper around the sherpa-onnx [OfflineRecognizer].
- *
- * The native engine is **not** thread-safe, so every method here must be
- * called while holding the owner's native lock. At most one model is resident
- * at a time; loading a different model releases the previous one.
+ * Thin, stateful wrapper around the sherpa-onnx [OfflineRecognizer]. The
+ * native engine is not thread-safe, so every method must be called while
+ * holding the owner's native lock. At most one model is resident at a time.
  */
 class SttEngine {
     @Volatile private var recognizer: OfflineRecognizer? = null
@@ -32,13 +30,9 @@ class SttEngine {
     fun isLoaded(model: SttModel, language: String): Boolean =
         loadedModel == model && recognizer != null && loadedLanguage == language
 
-    /** Whether [model] is resident regardless of the configured language. */
     fun isModelLoaded(model: SttModel): Boolean = loadedModel == model && recognizer != null
 
-    /**
-     * Loads [descriptor] into native memory, releasing any previously resident
-     * model. Callers must serialize this with [transcribe].
-     */
+    /** Loads [descriptor], releasing any previously resident model. */
     fun load(descriptor: SttModelDescriptor, modelDir: File, language: String) {
         if (isLoaded(descriptor.model, language)) return
         release()
@@ -67,8 +61,7 @@ class SttEngine {
      * Transcribes [samples] (mono float in `[-1, 1]` at [sampleRate] Hz).
      * Audio longer than 30 seconds is split into chunks (the offline Whisper
      * models only decode 30 s per stream) and the texts are joined.
-     * [onProgress] is invoked with `0f..1f` as chunks complete (one increment
-     * per 30 s window). Callers must serialize this with [load].
+     * [onProgress] is invoked with `0f..1f` as chunks complete.
      */
     fun transcribe(samples: FloatArray, sampleRate: Int, onProgress: (Float) -> Unit = {}): String {
         val chunkSamples = CHUNK_SECONDS * sampleRate
@@ -83,8 +76,7 @@ class SttEngine {
         var completed = 0
         while (start < samples.size) {
             val end = minOf(start + chunkSamples, samples.size)
-            val chunk = samples.copyOfRange(start, end)
-            val text = decodeChunk(chunk, sampleRate)
+            val text = decodeChunk(samples.copyOfRange(start, end), sampleRate)
             completed++
             onProgress(completed.toFloat() / totalChunks)
             if (text.isNotEmpty()) {
@@ -177,11 +169,7 @@ class SttEngine {
             "fa",
         )
 
-        /**
-         * Resolves the language for the recognizer: a hint (e.g. detected from
-         * the room's text messages), then the device locale, then English -
-         * each restricted to what the multilingual Whisper vocabulary supports.
-         */
+        /** Resolves the recognizer language: hint, then device locale, then English. */
         fun resolveLanguage(hint: String?): String {
             val candidates = listOfNotNull(hint, java.util.Locale.getDefault().language.lowercase())
             return candidates.firstOrNull { it in SUPPORTED_LANGUAGES } ?: FALLBACK_LANGUAGE

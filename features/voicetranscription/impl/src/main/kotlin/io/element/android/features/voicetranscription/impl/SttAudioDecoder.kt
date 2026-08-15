@@ -17,17 +17,12 @@ import java.io.File
 
 /**
  * Decodes a decrypted voice attachment (Matrix voice is Opus in an Ogg
- * container) into 16 kHz mono float samples ready for the Whisper engine.
- *
- * Uses the platform [MediaExtractor] + [MediaCodec] so no extra native audio
- * dependency is required. The decoded PCM is down-mixed to mono and linearly
- * resampled to 16 kHz (the rate Whisper expects).
- *
- * Note: Ogg/Opus extraction via [MediaExtractor] is available from API 27+.
- * On older devices this may fail; the caller surfaces the error to the user.
+ * container) into 16 kHz mono float samples for the Whisper engine, using
+ * the platform [MediaExtractor] + [MediaCodec]. Ogg/Opus extraction via
+ * [MediaExtractor] requires API 27+; failures are surfaced by the caller.
  */
 class SttAudioDecoder {
-    /** Result of decoding: mono float samples in the `[-1, 1]` range at [sampleRate] Hz. */
+    /** Mono float samples in the `[-1, 1]` range at [sampleRate] Hz. */
     data class Decoded(val samples: FloatArray, val sampleRate: Int)
 
     fun decode(source: File): Decoded {
@@ -45,9 +40,8 @@ class SttAudioDecoder {
             } else {
                 DEFAULT_OPUS_SAMPLE_RATE
             }
-            // Sample rate is container metadata and therefore untrusted. Clamp to a
-            // plausible range so resampleLinear cannot allocate a huge buffer from a
-            // crafted (near-zero) value.
+            // Container metadata is untrusted; clamp so a crafted value cannot
+            // make the resampler allocate a huge buffer.
             val sourceSampleRate = rawSampleRate.coerceIn(MIN_SAMPLE_RATE, MAX_SAMPLE_RATE)
             val channelCount = if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                 format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
@@ -98,7 +92,6 @@ class SttAudioDecoder {
                         val bytes = ByteArray(info.size)
                         outBuffer.get(bytes)
                         output.write(bytes)
-                        // Cap decoded size so a large/crafted attachment cannot exhaust memory.
                         if (output.size() > MAX_DECODE_BYTES) break
                     }
                     codec.releaseOutputBuffer(outputIndex, false)
@@ -141,19 +134,15 @@ class SttAudioDecoder {
         for (i in 0 until frames) {
             val lo = pcm[src++].toInt() and 0xFF
             val hi = pcm[src++].toInt()
-            val sample = hi shl 8 or lo
-            out[i] = sample / 32_768f
+            out[i] = (hi shl 8 or lo) / 32_768f
         }
         return out
     }
 
-    /** Simple linear resampler to [targetRate]. */
     private fun resampleLinear(input: FloatArray, sourceRate: Int, targetRate: Int): FloatArray {
         if (sourceRate == targetRate || input.isEmpty()) return input
         val ratio = sourceRate.toDouble() / targetRate.toDouble()
-        val rawLength = (input.size / ratio).toInt().coerceAtLeast(1)
-        // Hard cap: never allocate more than MAX_SAMPLES regardless of input metadata.
-        val outLength = rawLength.coerceAtMost(MAX_SAMPLES)
+        val outLength = (input.size / ratio).toInt().coerceIn(1, MAX_SAMPLES)
         val out = FloatArray(outLength)
         for (i in 0 until outLength) {
             val srcPos = i * ratio
@@ -171,10 +160,10 @@ class SttAudioDecoder {
         const val MIN_SAMPLE_RATE = 8_000
         const val MAX_SAMPLE_RATE = 48_000
 
-        // ~10 minutes of 16 kHz mono float samples — bounds resampler output.
+        // ~10 minutes of 16 kHz mono float samples.
         const val MAX_SAMPLES = 10 * 60 * TARGET_SAMPLE_RATE
 
-        // ~20 MB of decoded 16-bit PCM — bounds the decode buffer.
+        // ~20 MB of decoded 16-bit PCM.
         const val MAX_DECODE_BYTES = 20 * 1024 * 1024
         const val INPUT_TIMEOUT_US = 10_000L
         const val OUTPUT_TIMEOUT_US = 10_000L

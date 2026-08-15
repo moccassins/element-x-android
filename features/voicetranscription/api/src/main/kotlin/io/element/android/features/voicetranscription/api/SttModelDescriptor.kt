@@ -11,12 +11,9 @@ package io.element.android.features.voicetranscription.api
 import androidx.compose.runtime.Immutable
 
 /**
- * A single artifact of a [SttModel], downloadable on its own.
- *
- * Nothing about the remote file is pinned here: size and content hash are
- * probed from the server right before a download (see SttModelStore) and
- * the downloaded file is verified against them, so upstream model updates
- * require no code change.
+ * A single artifact of a [SttModel], downloadable on its own. Size and
+ * content hash are probed from the server at download time, so nothing is
+ * pinned here.
  */
 @Immutable
 data class SttModelFile(
@@ -25,19 +22,16 @@ data class SttModelFile(
 )
 
 /**
- * Describes the on-disk artifacts of a [SttModel].
- *
- * Artifacts are fetched individually from HuggingFace (the sherpa-onnx GitHub
- * release only ships a `tar.bz2` bundle). Note that for the int8 Whisper
- * exports the *decoder* is the large file, not the encoder.
+ * Describes the on-disk artifacts of a [SttModel], fetched individually from
+ * HuggingFace (the sherpa-onnx GitHub release only ships a `tar.bz2` bundle).
+ * For the int8 Whisper exports the *decoder* is the large file, not the
+ * encoder.
  *
  * @param model The tier this descriptor describes.
  * @param dirName Sub-directory, under the models root, holding this model's files.
  * @param displaySizeMb Approximate total size, for the settings UI only.
- * @param recommendedRamMb Recommended total device RAM for this model, a
- * conservative heuristic (peak native usage is typically larger than the
- * on-disk size because the runtime keeps encoder, decoder and session state
- * in memory). Used to warn - never block - on low-end devices.
+ * @param recommendedRamMb Recommended total device RAM, a conservative
+ * heuristic used to warn - never block - on low-end devices.
  * @param encoder Int8 encoder ONNX artifact.
  * @param decoder Int8 decoder ONNX artifact.
  * @param tokens Tokens artifact.
