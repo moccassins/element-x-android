@@ -13,16 +13,15 @@ import androidx.compose.runtime.Immutable
 /**
  * A single artifact of a [SttModel], downloadable on its own.
  *
- * @param minBytes Size of the remote file at the time of pinning. Used as the
- * total for download progress and as a *minimum* validation floor: a local
- * file smaller than this was truncated or corrupted and is re-fetched. A
- * larger file (e.g. after an upstream model update) still validates.
+ * Nothing about the remote file is pinned here: size and content hash are
+ * probed from the server right before a download (see SttModelStore) and
+ * the downloaded file is verified against them, so upstream model updates
+ * require no code change.
  */
 @Immutable
 data class SttModelFile(
     val url: String,
     val localName: String,
-    val minBytes: Long,
 )
 
 /**
@@ -53,9 +52,9 @@ data class SttModelDescriptor(
     val decoder: SttModelFile,
     val tokens: SttModelFile,
 ) {
-    /** Sum of all artifact sizes — the total used for download progress. */
-    val totalBytes: Long
-        get() = encoder.minBytes + decoder.minBytes + tokens.minBytes
+    /** All artifacts of this model, in download order (largest last). */
+    val files: List<SttModelFile>
+        get() = listOf(tokens, encoder, decoder)
 }
 
 object SttModels {
@@ -65,40 +64,19 @@ object SttModels {
      * model handles English and German (and more) voice messages.
      */
     val all: List<SttModelDescriptor> = listOf(
-        descriptor(
-            SttModel.TINY,
-            displaySizeMb = 104,
-            recommendedRamMb = 2_048,
-            encoderBytes = 12_937_772L,
-            decoderBytes = 89_855_401L,
-        ),
-        descriptor(
-            SttModel.BASE,
-            displaySizeMb = 161,
-            recommendedRamMb = 2_560,
-            encoderBytes = 29_120_534L,
-            decoderBytes = 130_672_026L,
-        ),
-        descriptor(
-            SttModel.SMALL,
-            displaySizeMb = 375,
-            recommendedRamMb = 4_096,
-            encoderBytes = 112_442_483L,
-            decoderBytes = 262_226_114L,
-        ),
+        descriptor(SttModel.TINY, displaySizeMb = 104, recommendedRamMb = 2_048),
+        descriptor(SttModel.BASE, displaySizeMb = 161, recommendedRamMb = 2_560),
+        descriptor(SttModel.SMALL, displaySizeMb = 375, recommendedRamMb = 4_096),
     )
 
     fun forModel(model: SttModel): SttModelDescriptor = all.first { it.model == model }
 
-    private const val TOKENS_BYTES = 816_730L
     private const val HF_BASE = "https://huggingface.co/csukuangfj"
 
     private fun descriptor(
         model: SttModel,
         displaySizeMb: Int,
         recommendedRamMb: Int,
-        encoderBytes: Long,
-        decoderBytes: Long,
     ): SttModelDescriptor {
         val repo = "sherpa-onnx-whisper-${model.id}"
         val prefix = "$HF_BASE/$repo/resolve/main"
@@ -107,9 +85,9 @@ object SttModels {
             dirName = repo,
             displaySizeMb = displaySizeMb,
             recommendedRamMb = recommendedRamMb,
-            encoder = SttModelFile("$prefix/${model.id}-encoder.int8.onnx", "${model.id}-encoder.int8.onnx", encoderBytes),
-            decoder = SttModelFile("$prefix/${model.id}-decoder.int8.onnx", "${model.id}-decoder.int8.onnx", decoderBytes),
-            tokens = SttModelFile("$prefix/${model.id}-tokens.txt", "${model.id}-tokens.txt", TOKENS_BYTES),
+            encoder = SttModelFile("$prefix/${model.id}-encoder.int8.onnx", "${model.id}-encoder.int8.onnx"),
+            decoder = SttModelFile("$prefix/${model.id}-decoder.int8.onnx", "${model.id}-decoder.int8.onnx"),
+            tokens = SttModelFile("$prefix/${model.id}-tokens.txt", "${model.id}-tokens.txt"),
         )
     }
 }

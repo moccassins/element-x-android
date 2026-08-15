@@ -34,16 +34,20 @@ import timber.log.Timber
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Owns the on-disk lifecycle of Whisper model artifacts.
  *
  * Downloads of *different* models run in parallel (they write independent
  * directories); concurrent requests for the *same* model await a single
- * in-flight download. Each download enforces a 30s inactivity timeout and
- * validates the encoder file by size before reporting the model as ready — a
- * truncated file (the FluffyChat "not all tensors loaded" failure mode) is
- * deleted and surfaced as an error.
+ * in-flight download. Nothing about the remote files is pinned in code:
+ * before a download the expected size and content hash are probed from the
+ * server (HuggingFace exposes the SHA-256 of LFS files and the git-blob
+ * SHA-1 of plain files via `X-Linked-ETag`), and every downloaded artifact
+ * is verified against them — a truncated or corrupted file is deleted and
+ * surfaced as an error. A `.verified` marker recording the accepted sizes
+ * makes later re-validation cheap (no re-hashing of hundreds of MB).
  *
  * Models are stored under the application base directory (not the OS-evictable
  * cache) so a validated model is not silently removed under storage pressure.
@@ -76,7 +80,7 @@ class SttModelStore(
         return File(File(rootDir, descriptor.dirName), file.localName)
     }
 
-    /** Directory holding [model]'s extracted files. */
+    /** Directory holding [model]'s files. */
     fun modelDir(model: SttModel): File = File(rootDir, SttModels.forModel(model).dirName)
 
     /**
@@ -133,15 +137,21 @@ class SttModelStore(
         if (validate(descriptor)) SttModelStatus.Ready else SttModelStatus.NotDownloaded
 
     /**
-     * A model is valid when every artifact exists and is at least its pinned
-     * minimum size (a smaller file was truncated; a larger one is accepted so
-     * upstream model updates do not invalidate the download).
+     * A model is valid when a `.verified` marker exists (written after a
+     * successful download) and every artifact listed in it is still present
+     * at exactly the accepted size.
      */
-    private fun validate(descriptor: SttModelDescriptor): Boolean =
-        listOf(descriptor.encoder, descriptor.decoder, descriptor.tokens).all { file ->
-            val local = File(modelDir(descriptor.model), file.localName)
-            local.exists() && local.length() >= file.minBytes
+    private fun validate(descriptor: SttModelDescriptor): Boolean {
+        val marker = File(modelDir(descriptor.model), VERIFIED_MARKER)
+        if (!marker.isFile) return false
+        val entries = marker.readLines().filter { it.isNotBlank() }
+        if (entries.isEmpty()) return false
+        return entries.all { entry ->
+            val size = entry.split(' ').getOrNull(1)?.toLongOrNull() ?: return false
+            val local = File(modelDir(descriptor.model), entry.substringBefore(' '))
+            local.exists() && local.length() == size
         }
+    }
 
     /**
      * Atomically returns the in-flight download for [model], or registers a new one.
@@ -162,13 +172,14 @@ class SttModelStore(
         val descriptor = SttModels.forModel(model)
         updateStatus(model) { SttModelStatus.Downloading(0f) }
         try {
-            val files = listOf(descriptor.encoder, descriptor.decoder, descriptor.tokens)
-            // Total is known upfront from the pinned artifact sizes, so progress
-            // is monotonically increasing across the three sequential downloads.
-            val total = descriptor.totalBytes
+            // Probe size and hash of every artifact first: the exact total makes
+            // download progress monotonic, and the hashes gate the files below.
+            val metas = descriptor.files.associate { it to probe(it.url) }
+            val total = metas.values.sumOf { it.size }
+            require(total > 0) { "Could not determine the size of model ${model.id}" }
             var received = 0L
             var lastPercent = -1
-            for (file in files) {
+            for (file in descriptor.files) {
                 val dest = localFile(model, file).also { it.parentFile?.mkdirs() }
                 downloadFile(
                     url = file.url,
@@ -176,19 +187,19 @@ class SttModelStore(
                     onChunk = { delta ->
                         received += delta
                         // Throttle to integer-percent changes to avoid thousands of emissions.
-                        val percent = if (total > 0) (received * 100 / total).toInt() else 0
+                        val percent = (received * 100 / total).toInt()
                         if (percent != lastPercent) {
                             lastPercent = percent
                             updateStatus(model) { SttModelStatus.Downloading((percent / 100f).coerceIn(0f, 1f)) }
                         }
                     },
                 )
+                val meta = metas.getValue(file)
+                verify(dest, meta)?.let { reason ->
+                    error("Downloaded ${model.id}/${file.localName} failed verification: $reason")
+                }
             }
-            // Validate before declaring ready; corrupt files are removed.
-            if (!validate(descriptor)) {
-                modelDir(model).deleteRecursively()
-                error("Downloaded model ${model.id} failed validation (corrupt or truncated).")
-            }
+            writeVerifiedMarker(model, metas)
             updateStatus(model) { SttModelStatus.Ready }
         } catch (e: Exception) {
             modelDir(model).deleteRecursively()
@@ -197,9 +208,115 @@ class SttModelStore(
         }
     }
 
+    /** Server-provided expectations for one artifact. */
+    private data class FileMeta(val size: Long, val etagHex: String?)
+
+    /**
+     * HEAD-probes [url] for its exact size and content hash. HuggingFace
+     * answers LFS files (the ONNX models) with a SHA-256 `X-Linked-ETag` and
+     * their exact size via `X-Linked-Size`. Plain files carry a git-blob
+     * SHA-1 `X-Linked-ETag` on the first response, but its `Content-Length`
+     * is the HTML redirect page — the exact size only shows when following
+     * the redirect once, or by probing a single byte via a Range request.
+     */
+    private suspend fun probe(url: String): FileMeta = withContext(Dispatchers.IO) {
+        val conn = open(url).apply { requestMethod = "HEAD" }
+        try {
+            val etag = conn.getHeaderField("X-Linked-ETag")?.trim('"', ' ')
+            val linkedSize = conn.getHeaderField("X-Linked-Size")?.toLongOrNull()
+            val size = linkedSize
+                ?: conn.getHeaderField("Location")?.let { location ->
+                    // Plain file: the redirect target knows the real size.
+                    sizeOfRedirectTarget(location, base = url)
+                }
+                ?: probeSizeWithRange(url)
+            require(size != null && size > 0) { "Could not probe the size of $url" }
+            FileMeta(size, etag)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** Follows [location] once and returns the `Content-Length` of the target. */
+    private fun sizeOfRedirectTarget(location: String, base: String): Long? {
+        val second = open(location, base = base).apply { requestMethod = "HEAD" }
+        return try {
+            second.getHeaderField("Content-Length")?.toLongOrNull()?.takeIf { it > 0 }
+        } finally {
+            second.disconnect()
+        }
+    }
+
+    /**
+     * Fallback size probe: a 1-byte Range GET reports the full length in
+     * `Content-Range` (`bytes 0-0/816730`) without transferring the file.
+     */
+    private fun probeSizeWithRange(url: String): Long? {
+        val conn = open(url, followRedirects = true).apply {
+            requestMethod = "GET"
+            setRequestProperty("Range", "bytes=0-0")
+        }
+        return try {
+            conn.getHeaderField("Content-Range")
+                ?.substringAfterLast('/')
+                ?.toLongOrNull()
+                ?.takeIf { it > 0 }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /**
+     * Returns `null` when [dest] matches [meta], otherwise the reason. The
+     * size must match exactly; the hash comparison depends on what the server
+     * exposed (SHA-256 of the content for LFS files, git-blob SHA-1 for plain
+     * files; no hash check when no usable ETag was served).
+     */
+    private suspend fun verify(dest: File, meta: FileMeta): String? = withContext(Dispatchers.IO) {
+        if (dest.length() != meta.size) return@withContext "expected ${meta.size} bytes, got ${dest.length()}"
+        val etag = meta.etagHex?.lowercase() ?: return@withContext null
+        when (etag.length) {
+            SHA256_HEX_LENGTH -> if (hashFile(dest, "SHA-256", prefix = null) == etag) null else "SHA-256 mismatch"
+            SHA1_HEX_LENGTH -> if (hashFile(dest, "SHA-1", prefix = "blob ${dest.length()}\u0000") == etag) null else "git-blob SHA-1 mismatch"
+            else -> null.also { Timber.w("Ignoring unsupported ETag for %s", dest.name) }
+        }
+    }
+
+    /** Hex digest of [file], optionally prefixed (git blob header). */
+    private fun hashFile(file: File, algorithm: String, prefix: String?): String {
+        val digest = MessageDigest.getInstance(algorithm)
+        prefix?.toByteArray(Charsets.US_ASCII)?.let { digest.update(it) }
+        file.inputStream().use { input ->
+            val buffer = ByteArray(BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /** Records the accepted artifacts so later re-validation needs no re-hashing. */
+    private fun writeVerifiedMarker(model: SttModel, metas: Map<SttModelFile, FileMeta>) {
+        val lines = metas.entries.sortedBy { it.key.localName }.joinToString("\n") { (file, meta) ->
+            "${file.localName} ${meta.size} ${meta.etagHex ?: "-"}"
+        }
+        File(modelDir(model), VERIFIED_MARKER).writeText(lines)
+    }
+
     private fun updateStatus(model: SttModel, transform: (SttModelStatus) -> SttModelStatus) {
         mutableStatus.update { current ->
             current.toMutableMap().apply { put(model, transform(current[model] ?: SttModelStatus.NotDownloaded)) }
+        }
+    }
+
+    private fun open(url: String, base: String? = null, followRedirects: Boolean = false): HttpURLConnection {
+        val resolved = if (base != null && !url.startsWith("http")) URL(URL(base), url) else URL(url)
+        return (resolved.openConnection() as HttpURLConnection).apply {
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
+            instanceFollowRedirects = followRedirects
         }
     }
 
@@ -211,11 +328,7 @@ class SttModelStore(
         dest: File,
         onChunk: (Long) -> Unit,
     ): Long = withContext(Dispatchers.IO) {
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = CONNECT_TIMEOUT_MS
-            readTimeout = READ_TIMEOUT_MS
-            instanceFollowRedirects = true
-        }
+        val conn = open(url, followRedirects = true).apply { requestMethod = "GET" }
         try {
             conn.inputStream.use { input ->
                 dest.outputStream().use { output ->
@@ -244,5 +357,8 @@ class SttModelStore(
         const val CONNECT_TIMEOUT_MS = 30_000
         const val READ_TIMEOUT_MS = 30_000
         const val BUFFER_SIZE = 64 * 1024
+        const val VERIFIED_MARKER = ".verified"
+        const val SHA256_HEX_LENGTH = 64
+        const val SHA1_HEX_LENGTH = 40
     }
 }
