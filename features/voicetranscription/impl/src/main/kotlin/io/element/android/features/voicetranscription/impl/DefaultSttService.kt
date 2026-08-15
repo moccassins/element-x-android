@@ -31,16 +31,10 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Default [SttService].
- *
- * Threading model (hard-won lessons from the FluffyChat reference):
- * - Native operations (load / warm-up / transcribe) are serialized with
- *   [nativeLock] because sherpa-onnx is not safe to call concurrently.
- * - Downloads are delegated to [SttModelStore] and run independently of the
- *   native lock, so several models can download while one transcribes.
- * - Exactly one model is resident at a time. After use a 2-minute unload
- *   timer frees native memory; it is cancelled and rescheduled on every use
- *   so back-to-back messages are effectively free.
+ * Default [SttService]. Native operations are serialized with [nativeLock]
+ * (sherpa-onnx is not safe to call concurrently) while downloads run
+ * independently. Exactly one model stays resident; an unload timer frees the
+ * native memory 2 minutes after the last use.
  */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
@@ -54,34 +48,25 @@ class DefaultSttService(
     private val nativeLock = Mutex()
     private val cache = ConcurrentHashMap<EventId, SttService.CachedTranscription>()
 
-    private val activeModelHolder = MutableStateFlow<SttModel?>(null)
+    private val activeModelHolder = MutableStateFlow(SttModel.TINY)
     private var unloadJob: Job? = null
 
     init {
-        // Persisted choice is the single source of truth; applying it also
-        // kicks off download + warm-up in the background.
         appScope.launch {
             preferences.activeModelFlow.collect { model ->
                 activeModelHolder.value = model
-                if (model == null) {
-                    unloadJob?.cancel()
-                    nativeLock.withLock { engine.release() }
-                } else {
-                    ensureReady(model)
-                }
+                ensureReady(model)
             }
         }
     }
 
-    override val activeModel: SttModel? get() = activeModelHolder.value
+    override val activeModel: SttModel get() = activeModelHolder.value
     override val activeModelState get() = activeModelHolder.asStateFlow()
     override val modelsStatus get() = modelStore.status
 
     override fun setActiveModel(model: SttModel) {
         appScope.launch {
             preferences.setActiveModel(model)
-            // ensureReady is also driven by the preferences flow, but starting
-            // it here makes the download begin immediately.
             ensureReady(model)
         }
     }
@@ -113,15 +98,11 @@ class DefaultSttService(
     ): Result<String> {
         cache[eventId]?.let { return Result.success(it.text) }
         val model = activeModelHolder.value
-            ?: return Result.failure(IllegalStateException("No STT model selected"))
         val language = SttEngine.resolveLanguage(languageHint)
         return try {
-            // Download is decoupled from the native lock.
             if (!modelStore.isReady(model)) {
                 modelStore.ensureDownloaded(model)
             }
-            // Decoding (MediaCodec) is independent of the sherpa engine and can
-            // run outside the native lock so downloads/warm-ups are not blocked.
             val decoded = withContext(Dispatchers.IO) { decoder.decode(audioFile) }
             val text = nativeLock.withLock {
                 if (!engine.isLoaded(model, language)) {
@@ -170,7 +151,6 @@ class DefaultSttService(
     }
 
     private companion object {
-        /** Keep the model resident briefly after use so follow-up messages are free. */
         const val UNLOAD_DELAY_MS = 120_000L
     }
 }

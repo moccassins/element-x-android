@@ -28,17 +28,14 @@ class SttPreferences(
 ) {
     private val store = preferenceDataStoreFactory.create("elementx_stt")
 
-    val activeModelFlow: Flow<SttModel?> = store.data
-        .map { prefs -> SttModel.fromId(prefs[KEY_ACTIVE_MODEL]) }
+    /** Defaults to [SttModel.TINY] — the smallest download, best device support. */
+    val activeModelFlow: Flow<SttModel> = store.data
+        .map { prefs -> SttModel.fromId(prefs[KEY_ACTIVE_MODEL]) ?: SttModel.TINY }
         .distinctUntilChanged()
 
-    suspend fun setActiveModel(model: SttModel?) {
+    suspend fun setActiveModel(model: SttModel) {
         store.edit { prefs ->
-            if (model == null) {
-                prefs.remove(KEY_ACTIVE_MODEL)
-            } else {
-                prefs[KEY_ACTIVE_MODEL] = model.id
-            }
+            prefs[KEY_ACTIVE_MODEL] = model.id
         }
     }
 

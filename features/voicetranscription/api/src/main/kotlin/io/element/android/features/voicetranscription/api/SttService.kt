@@ -14,26 +14,17 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * On-device speech-to-text service.
  *
- * Implementations MUST:
- * - keep at most one Whisper model resident in native memory at a time;
- * - serialize native operations (transcription / warm-up) — the sherpa-onnx
- *   engine is not safe to call concurrently;
- * - allow model downloads to run in parallel with each other and with native
- *   operations (downloads write independent files);
- * - dedupe concurrent downloads of the same model;
- * - validate downloaded model files by size before use and re-download
- *   truncated files.
- *
- * Transcription results are cached in memory keyed by [EventId] and never
- * persisted: transcripts are cheap to regenerate and there is no need to
- * survive process death.
+ * Implementations keep at most one Whisper model resident in native memory
+ * (the sherpa-onnx engine is not safe to call concurrently) while downloads
+ * run in parallel. Transcription results are cached in memory keyed by
+ * [EventId] and never persisted: transcripts are cheap to regenerate.
  */
 interface SttService {
-    /** Currently selected model, or `null` until the user picks one. */
-    val activeModel: SttModel?
+    /** Currently selected model. Defaults to [SttModel.TINY]. */
+    val activeModel: SttModel
 
     /** Reactive variant of [activeModel]. */
-    val activeModelState: StateFlow<SttModel?>
+    val activeModelState: StateFlow<SttModel>
 
     /**
      * Per-model on-disk status, reactive. Always reflects the latest known

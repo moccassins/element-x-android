@@ -27,7 +27,7 @@ class SttSettingsPresenterTest {
     val warmUpRule = WarmUpRule()
 
     @Test
-    fun `present - exposes all models with no active selection`() = runTest {
+    fun `present - exposes all models with tiny preselected`() = runTest {
         val service = FakeSttService(
             initialStatus = mapOf(SttModel.BASE to SttModelStatus.Ready),
         )
@@ -41,7 +41,7 @@ class SttSettingsPresenterTest {
             val state = awaitItem()
             assertThat(state.enabled).isTrue()
             assertThat(state.models).hasSize(3)
-            assertThat(state.models.none { it.isActive }).isTrue()
+            assertThat(state.models.first { it.isActive }.model).isEqualTo(SttModel.TINY)
             assertThat(service.selectedModels).isEmpty()
             val base = state.models.first { it.model == SttModel.BASE }
             assertThat(base.status).isEqualTo(SttModelStatus.Ready)

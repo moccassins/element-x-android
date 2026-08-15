@@ -22,7 +22,7 @@ import java.io.File
  * it receives so tests can assert on them.
  */
 class FakeSttService(
-    initialActiveModel: SttModel? = null,
+    initialActiveModel: SttModel = SttModel.TINY,
     initialStatus: Map<SttModel, SttModelStatus> = emptyMap(),
 ) : SttService {
     private val activeModelStateHolder = MutableStateFlow(initialActiveModel)
@@ -33,8 +33,8 @@ class FakeSttService(
     val downloadedModels = mutableListOf<SttModel>()
     val deletedModels = mutableListOf<SttModel>()
 
-    override val activeModel: SttModel? get() = activeModelStateHolder.value
-    override val activeModelState: StateFlow<SttModel?> get() = activeModelStateHolder.asStateFlow()
+    override val activeModel: SttModel get() = activeModelStateHolder.value
+    override val activeModelState: StateFlow<SttModel> get() = activeModelStateHolder.asStateFlow()
     override val modelsStatus: StateFlow<Map<SttModel, SttModelStatus>> get() = statusState.asStateFlow()
 
     override fun setActiveModel(model: SttModel) {
