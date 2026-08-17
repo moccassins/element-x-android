@@ -11,13 +11,9 @@ package io.element.android.features.messages.impl.voicemessages.transcript
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -29,16 +25,13 @@ import io.element.android.compound.theme.ElementTheme
 import io.element.android.features.messages.impl.R
 import io.element.android.libraries.designsystem.preview.ElementPreview
 import io.element.android.libraries.designsystem.preview.PreviewsDayNight
-import io.element.android.libraries.designsystem.theme.components.CircularProgressIndicator
 import io.element.android.libraries.designsystem.theme.components.Text
 import io.element.android.libraries.ui.strings.CommonStrings
 import io.element.android.libraries.ui.utils.a11y.isTalkbackActive
 
 /**
  * Transcript text rendered inside the bubble, below the voice player.
- * Progress and model attribution live in the timestamp row instead
- * ([VoiceTranscriptTimestampExtras]); the transcribe trigger is the "→A"
- * button at the end of the player row.
+ * The transcribe trigger is the "→A" button at the end of the player row.
  */
 @Composable
 fun VoiceTranscriptBox(
@@ -59,54 +52,6 @@ fun VoiceTranscriptBox(
         state.phase is VoiceTranscriptPhase.Preparing -> Unit // Progress is shown in the timestamp row
         state.phase is VoiceTranscriptPhase.Error -> ErrorRow(state)
         else -> IdleRow(state)
-    }
-}
-
-/**
- * Voice-transcript extras rendered inline in the timestamp row, start-aligned:
- * the transcription progress while running, and the model attribution once a
- * transcript exists. Re-transcribing is done via the persistent "→A" button
- * at the end of the player row, so there is no extra action here.
- */
-@Composable
-fun VoiceTranscriptTimestampExtras(
-    modifier: Modifier = Modifier,
-) {
-    val state = LocalTimelineVoiceTranscriptHolder.current.state ?: return
-    if (!state.visible) return
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        when {
-            state.phase is VoiceTranscriptPhase.Preparing -> {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(12.dp),
-                    color = ElementTheme.colors.iconSecondary,
-                    strokeWidth = 2.dp,
-                )
-                Spacer(Modifier.width(6.dp))
-                val label = when {
-                    state.downloadProgress != null -> stringResource(R.string.screen_room_voice_transcript_preparing_model) +
-                        " " + (state.downloadProgress * 100).toInt() + "%"
-                    state.transcribeProgress != null -> stringResource(R.string.screen_room_voice_transcript_transcribing) +
-                        " " + (state.transcribeProgress * 100).toInt() + "%"
-                    else -> stringResource(R.string.screen_room_voice_transcript_transcribing)
-                }
-                Text(
-                    text = label,
-                    style = ElementTheme.typography.fontBodyXsRegular,
-                    color = ElementTheme.colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            state.text != null -> Text(
-                text = stringResource(R.string.screen_room_voice_transcript_on_device, state.transcribedModelId ?: ""),
-                style = ElementTheme.typography.fontBodyXsRegular,
-                color = ElementTheme.colors.textSecondary,
-            )
-        }
     }
 }
 
@@ -168,6 +113,7 @@ fun aVoiceTranscriptState(
     transcribedModelId: String? = "base",
     downloadProgress: Float? = null,
     transcribeProgress: Float? = null,
+    isTranscribing: Boolean = false,
     canTranscribe: Boolean = true,
     eventSink: (VoiceTranscriptEvent) -> Unit = {},
 ) = VoiceTranscriptState(
@@ -177,6 +123,7 @@ fun aVoiceTranscriptState(
     transcribedModelId = transcribedModelId,
     downloadProgress = downloadProgress,
     transcribeProgress = transcribeProgress,
+    isTranscribing = isTranscribing,
     canTranscribe = canTranscribe,
     eventSink = eventSink,
 )
@@ -200,17 +147,4 @@ internal fun VoiceTranscriptBoxPreview(
     @PreviewParameter(VoiceTranscriptStateProvider::class) state: VoiceTranscriptState,
 ) = ElementPreview {
     VoiceTranscriptBox(state = state)
-}
-
-@PreviewsDayNight
-@Composable
-internal fun VoiceTranscriptTimestampExtrasPreview() = ElementPreview {
-    CompositionLocalProvider(LocalTimelineVoiceTranscriptHolder provides TimelineVoiceTranscriptHolder().apply {
-        this.state = aVoiceTranscriptState(text = "Hello world", transcribedModelId = "small")
-    }) {
-        Row {
-            VoiceTranscriptTimestampExtras()
-            Text("12:34")
-        }
-    }
 }
