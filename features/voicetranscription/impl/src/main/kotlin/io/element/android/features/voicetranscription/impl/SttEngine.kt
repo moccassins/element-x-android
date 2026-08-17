@@ -21,27 +21,26 @@ import java.io.File
  * Thin, stateful wrapper around the sherpa-onnx [OfflineRecognizer]. The
  * native engine is not thread-safe, so every method must be called while
  * holding the owner's native lock. At most one model is resident at a time.
+ * The spoken language is detected per chunk by Whisper itself (an empty
+ * `language` in the native config enables the built-in detection).
  */
 class SttEngine {
     @Volatile private var recognizer: OfflineRecognizer? = null
     @Volatile private var loadedModel: SttModel? = null
-    @Volatile private var loadedLanguage: String? = null
 
-    fun isLoaded(model: SttModel, language: String): Boolean =
-        loadedModel == model && recognizer != null && loadedLanguage == language
-
-    fun isModelLoaded(model: SttModel): Boolean = loadedModel == model && recognizer != null
+    fun isLoaded(model: SttModel): Boolean = loadedModel == model && recognizer != null
 
     /** Loads [descriptor], releasing any previously resident model. */
-    fun load(descriptor: SttModelDescriptor, modelDir: File, language: String) {
-        if (isLoaded(descriptor.model, language)) return
+    fun load(descriptor: SttModelDescriptor, modelDir: File) {
+        if (isLoaded(descriptor.model)) return
         release()
         val config = OfflineRecognizerConfig(
             modelConfig = OfflineModelConfig(
                 whisper = OfflineWhisperModelConfig(
                     encoder = file(modelDir, descriptor.encoder.localName),
                     decoder = file(modelDir, descriptor.decoder.localName),
-                    language = language,
+                    // Empty language = let Whisper detect the spoken language itself.
+                    language = "",
                     task = TASK_TRANSCRIBE,
                     tailPaddings = TAIL_PADDINGS,
                 ),
@@ -53,8 +52,7 @@ class SttEngine {
         )
         recognizer = OfflineRecognizer(config = config)
         loadedModel = descriptor.model
-        loadedLanguage = language
-        Timber.d("STT engine loaded model %s (language %s)", descriptor.model.id, language)
+        Timber.d("STT engine loaded model %s", descriptor.model.id)
     }
 
     /**
@@ -110,7 +108,6 @@ class SttEngine {
         }
         recognizer = null
         loadedModel = null
-        loadedLanguage = null
     }
 
     private fun file(modelDir: File, name: String): String = File(modelDir, name).absolutePath
@@ -121,58 +118,5 @@ class SttEngine {
         const val TAIL_PADDINGS = 1000
         const val NUM_THREADS = 2
         const val CHUNK_SECONDS = 30
-        const val FALLBACK_LANGUAGE = "en"
-
-        /** Languages with a token in the multilingual Whisper vocabulary. */
-        val SUPPORTED_LANGUAGES = setOf(
-            "en",
-            "de",
-            "fr",
-            "es",
-            "it",
-            "pt",
-            "nl",
-            "ru",
-            "pl",
-            "tr",
-            "uk",
-            "sv",
-            "da",
-            "fi",
-            "cs",
-            "el",
-            "he",
-            "hi",
-            "id",
-            "ja",
-            "ko",
-            "zh",
-            "ar",
-            "hu",
-            "ro",
-            "th",
-            "vi",
-            "no",
-            "nb",
-            "nn",
-            "ca",
-            "hr",
-            "sk",
-            "sl",
-            "sr",
-            "bg",
-            "ms",
-            "bn",
-            "ta",
-            "te",
-            "ur",
-            "fa",
-        )
-
-        /** Resolves the recognizer language: hint, then device locale, then English. */
-        fun resolveLanguage(hint: String?): String {
-            val candidates = listOfNotNull(hint, java.util.Locale.getDefault().language.lowercase())
-            return candidates.firstOrNull { it in SUPPORTED_LANGUAGES } ?: FALLBACK_LANGUAGE
-        }
     }
 }

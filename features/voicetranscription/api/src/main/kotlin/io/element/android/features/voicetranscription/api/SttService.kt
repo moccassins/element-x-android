@@ -60,15 +60,13 @@ interface SttService {
 
     /**
      * Transcribes the decrypted voice [audioFile] using the active model.
-     * [languageHint] is a language code (e.g. "de") derived from the room's
-     * messages; `null` falls back to the device locale. [onProgress] is
+     * The spoken language is detected by Whisper itself. [onProgress] is
      * invoked with `0f..1f` as 30 s chunks complete. The result is cached by
      * [eventId].
      */
     suspend fun transcribe(
         eventId: EventId,
         audioFile: java.io.File,
-        languageHint: String? = null,
         onProgress: (Float) -> Unit = {},
     ): Result<String>
 }

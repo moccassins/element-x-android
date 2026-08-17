@@ -60,7 +60,6 @@ class FakeSttService(
     override suspend fun transcribe(
         eventId: EventId,
         audioFile: File,
-        languageHint: String?,
         onProgress: (Float) -> Unit,
     ): Result<String> {
         val text = "transcript-${eventId.value}"

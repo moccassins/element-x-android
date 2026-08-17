@@ -78,7 +78,7 @@ class DefaultSttService(
     override suspend fun deleteModel(model: SttModel): Boolean {
         if (model == activeModelHolder.value) return false
         val deleted = modelStore.delete(model)
-        if (deleted && engine.isModelLoaded(model)) {
+        if (deleted && engine.isLoaded(model)) {
             nativeLock.withLock { engine.release() }
         }
         return deleted
@@ -93,20 +93,18 @@ class DefaultSttService(
     override suspend fun transcribe(
         eventId: EventId,
         audioFile: File,
-        languageHint: String?,
         onProgress: (Float) -> Unit,
     ): Result<String> {
         cache[eventId]?.let { return Result.success(it.text) }
         val model = activeModelHolder.value
-        val language = SttEngine.resolveLanguage(languageHint)
         return try {
             if (!modelStore.isReady(model)) {
                 modelStore.ensureDownloaded(model)
             }
             val decoded = withContext(Dispatchers.IO) { decoder.decode(audioFile) }
             val text = nativeLock.withLock {
-                if (!engine.isLoaded(model, language)) {
-                    engine.load(SttModels.forModel(model), modelStore.modelDir(model), language)
+                if (!engine.isLoaded(model)) {
+                    engine.load(SttModels.forModel(model), modelStore.modelDir(model))
                 }
                 rescheduleUnload()
                 withContext(Dispatchers.Default) { engine.transcribe(decoded.samples, decoded.sampleRate, onProgress) }
@@ -133,10 +131,9 @@ class DefaultSttService(
     }
 
     private suspend fun warmUp(model: SttModel) {
-        val language = SttEngine.resolveLanguage(null)
         nativeLock.withLock {
-            if (!engine.isLoaded(model, language)) {
-                engine.load(SttModels.forModel(model), modelStore.modelDir(model), language)
+            if (!engine.isLoaded(model)) {
+                engine.load(SttModels.forModel(model), modelStore.modelDir(model))
             }
             rescheduleUnload()
         }
