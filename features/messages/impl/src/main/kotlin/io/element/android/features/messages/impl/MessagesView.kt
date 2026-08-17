@@ -147,10 +147,12 @@ fun MessagesView(
     onSendLocationClick: () -> Unit,
     onCreatePollClick: () -> Unit,
     onJoinCallClick: (isAudioCall: Boolean) -> Unit,
+    onOpenVoiceModelPicker: () -> Unit,
     onViewAllPinnedMessagesClick: () -> Unit,
     onThreadsListClick: () -> Unit,
     knockRequestsBannerView: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    voiceTranscriptionEnabled: Boolean = false,
     forceJumpToBottomVisibility: Boolean = false,
     customReactionBottomSheet: @Composable () -> Unit,
 ) {
@@ -256,7 +258,9 @@ fun MessagesView(
                                     displayThreads = state.timelineState.timelineMode !is Timeline.Mode.Thread && state.threads.hasThreads,
                                     roomCallState = state.roomCallState,
                                     onJoinCallClick = onJoinCallClick,
-                                    onThreadsListClick = onThreadsListClick
+                                    onThreadsListClick = onThreadsListClick,
+                                    onVoiceModelClick = { hidingKeyboard { onOpenVoiceModelPicker() } },
+                                    showVoiceTranscription = voiceTranscriptionEnabled,
                                 )
                             }
                         )
@@ -437,6 +441,8 @@ internal fun RowScope.MessagesMenuActions(
     roomCallState: RoomCallState,
     onJoinCallClick: (isAudioCall: Boolean) -> Unit,
     onThreadsListClick: () -> Unit,
+    onVoiceModelClick: () -> Unit = {},
+    showVoiceTranscription: Boolean = false,
 ) {
     if (displayThreads) {
         Icon(
@@ -451,6 +457,14 @@ internal fun RowScope.MessagesMenuActions(
         onJoinCallClick = onJoinCallClick,
     )
     Spacer(Modifier.width(8.dp))
+    if (showVoiceTranscription) {
+        Icon(
+            modifier = Modifier.clickable(enabled = true, onClick = onVoiceModelClick),
+            imageVector = CompoundIcons.Audio(),
+            contentDescription = stringResource(R.string.screen_room_voice_transcription_model_picker),
+        )
+        Spacer(Modifier.width(8.dp))
+    }
 }
 
 @Composable
@@ -674,6 +688,7 @@ internal fun MessagesViewPreview(@PreviewParameter(MessagesStateProvider::class)
         onSendLocationClick = {},
         onCreatePollClick = {},
         onJoinCallClick = {},
+        onOpenVoiceModelPicker = {},
         onViewAllPinnedMessagesClick = { },
         forceJumpToBottomVisibility = true,
         knockRequestsBannerView = {},
@@ -731,6 +746,7 @@ internal fun MessagesViewA11yPreview() = ElementPreview {
         onSendLocationClick = {},
         onCreatePollClick = {},
         onJoinCallClick = {},
+        onOpenVoiceModelPicker = {},
         onViewAllPinnedMessagesClick = {},
         onThreadsListClick = {},
         forceJumpToBottomVisibility = true,

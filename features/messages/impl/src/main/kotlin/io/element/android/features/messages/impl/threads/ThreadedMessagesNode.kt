@@ -336,6 +336,7 @@ class ThreadedMessagesNode(
                         )
                     },
                     onThreadsListClick = {},
+                    onOpenVoiceModelPicker = {},
                 )
 
                 roomMemberModerationRenderer.Render(
