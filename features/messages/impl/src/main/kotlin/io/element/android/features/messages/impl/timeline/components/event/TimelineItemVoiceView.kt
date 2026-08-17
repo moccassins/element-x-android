@@ -84,7 +84,7 @@ fun TimelineItemVoiceView(
     // Persistent, Telegram-style: starts the transcription and re-runs it once a
     // transcript exists. Only hidden for TalkBack users (the transcript box offers
     // a text link instead, since this row clears its children's semantics) and
-    // while no model is available.
+    // while no model is available. Disabled while any transcription is running.
     val showTranscribeButton = voiceTranscriptState != null &&
         !talkbackActive &&
         voiceTranscriptState.visible &&
@@ -173,6 +173,7 @@ fun TimelineItemVoiceView(
                         voiceTranscriptState.eventSink(VoiceTranscriptEvent.Transcribe)
                     }
                 },
+                enabled = !voiceTranscriptState.isTranscribing,
             )
         }
     }
@@ -296,17 +297,19 @@ private fun CustomIconButton(
  * Mirrors [PlaybackSpeedButton]'s pill style so it blends into the player and
  * follows theme changes. Starts the transcription; the resulting text is shown
  * by [VoiceTranscriptBox] between the player and the timestamp, progress and
- * attribution in the timestamp row.
+ * attribution in the timestamp row. Disabled while another transcription runs.
  */
 @Composable
 private fun TranscribeButton(
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
+    val contentColor = if (enabled) ElementTheme.colors.iconSecondary else ElementTheme.colors.iconDisabled
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(color = ElementTheme.colors.bgCanvasDefault)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -314,13 +317,13 @@ private fun TranscribeButton(
         Icon(
             imageVector = CompoundIcons.ArrowRight(),
             contentDescription = null,
-            tint = ElementTheme.colors.iconSecondary,
+            tint = contentColor,
             modifier = Modifier.size(12.dp),
         )
         Text(
             text = "A",
             style = ElementTheme.typography.fontBodyXsMedium,
-            color = ElementTheme.colors.iconSecondary,
+            color = contentColor,
         )
     }
 }

@@ -67,6 +67,9 @@ class VoiceTranscriptPresenter @AssistedInject constructor(
         val modelsStatus by produceState(initialValue = sttService.modelsStatus.value) {
             sttService.modelsStatus.collect { value = it }
         }
+        val isTranscribing by produceState(initialValue = false) {
+            sttService.isTranscribing.collect { value = it }
+        }
 
         if (!visible) {
             return VoiceTranscriptState(
@@ -76,6 +79,7 @@ class VoiceTranscriptPresenter @AssistedInject constructor(
                 transcribedModelId = transcribedModelId,
                 downloadProgress = null,
                 transcribeProgress = transcribeProgress,
+                isTranscribing = false,
                 canTranscribe = false,
                 eventSink = ::handleEvent,
             )
@@ -98,6 +102,7 @@ class VoiceTranscriptPresenter @AssistedInject constructor(
             transcribedModelId = transcribedModelId ?: activeModel.id,
             downloadProgress = downloadProgress,
             transcribeProgress = transcribeProgress,
+            isTranscribing = isTranscribing,
             canTranscribe = true,
             eventSink = ::handleEvent,
         )
@@ -105,6 +110,8 @@ class VoiceTranscriptPresenter @AssistedInject constructor(
 
     private fun handleEvent(event: VoiceTranscriptEvent) {
         val eventId = content.eventId ?: return
+        // The engine handles a single run at a time; ignore taps while one is busy.
+        if (sttService.isTranscribing.value) return
         when (event) {
             VoiceTranscriptEvent.Transcribe -> transcribe(eventId)
             VoiceTranscriptEvent.Retranscribe -> {
@@ -119,6 +126,9 @@ class VoiceTranscriptPresenter @AssistedInject constructor(
         scope.launch {
             phase = VoiceTranscriptPhase.Preparing
             transcribeProgress = null
+            // Capture the model that runs the transcription so the attribution
+            // cannot drift if the active model changes afterwards.
+            val runModelId = sttService.activeModel.id
             val audioFile = fetchAudioFile()
             if (audioFile == null) {
                 phase = VoiceTranscriptPhase.Error("Could not download voice attachment")
@@ -130,7 +140,7 @@ class VoiceTranscriptPresenter @AssistedInject constructor(
                 }
                     .onSuccess { transcript ->
                         text = transcript
-                        transcribedModelId = sttService.activeModel.id
+                        transcribedModelId = runModelId
                         phase = VoiceTranscriptPhase.Idle
                         transcribeProgress = null
                     }

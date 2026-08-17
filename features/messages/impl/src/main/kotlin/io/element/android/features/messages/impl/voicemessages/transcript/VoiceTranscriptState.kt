@@ -19,7 +19,9 @@ import androidx.compose.runtime.Immutable
  * transcription is started, not when the user switches the active model.
  * [downloadProgress] is non-null (in `0f..1f`) while the active model is
  * downloading, [transcribeProgress] while chunks of this message are being
- * transcribed (one step per 30 s of audio).
+ * transcribed (one step per 30 s of audio). [isTranscribing] is true while
+ * any transcription is running, disabling the transcribe button until the
+ * run finishes or fails.
  */
 @Immutable
 data class VoiceTranscriptState(
@@ -29,6 +31,7 @@ data class VoiceTranscriptState(
     val transcribedModelId: String?,
     val downloadProgress: Float?,
     val transcribeProgress: Float?,
+    val isTranscribing: Boolean,
     val canTranscribe: Boolean,
     val eventSink: (VoiceTranscriptEvent) -> Unit,
 )
