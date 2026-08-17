@@ -52,6 +52,7 @@ import io.element.android.features.messages.impl.timeline.model.event.ensureActi
 import io.element.android.features.messages.impl.timeline.model.event.formattedCaptionOrNull
 import io.element.android.features.messages.impl.timeline.protection.TimelineProtectionEvent
 import io.element.android.features.messages.impl.timeline.protection.TimelineProtectionState
+import io.element.android.features.messages.impl.voicemessages.transcript.LocalTimelineVoiceTranscriptHolder
 import io.element.android.features.messages.impl.voicemessages.transcript.LocalVoiceTranscriptPresenterFactory
 import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptBox
 import io.element.android.libraries.architecture.Presenter
@@ -226,6 +227,8 @@ fun TimelineItemEventContentView(
                     val transcriptFactory = LocalVoiceTranscriptPresenterFactory.current
                     val transcriptPresenter = remember(content) { transcriptFactory?.create(content) }
                     val transcriptState = transcriptPresenter?.present()
+                    // Expose the transcript state to the timestamp row of this event.
+                    LocalTimelineVoiceTranscriptHolder.current.state = transcriptState
                     Column {
                         TimelineItemVoiceView(
                             state = presenter.present(),

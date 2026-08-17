@@ -93,6 +93,9 @@ import io.element.android.features.messages.impl.timeline.model.event.aTimelineI
 import io.element.android.features.messages.impl.timeline.model.event.ensureActiveLiveLocation
 import io.element.android.features.messages.impl.timeline.protection.TimelineProtectionState
 import io.element.android.features.messages.impl.timeline.protection.mustBeProtected
+import io.element.android.features.messages.impl.voicemessages.transcript.LocalTimelineVoiceTranscriptHolder
+import io.element.android.features.messages.impl.voicemessages.transcript.TimelineVoiceTranscriptHolder
+import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptTimestampExtras
 import io.element.android.libraries.architecture.AsyncData
 import io.element.android.libraries.designsystem.colors.AvatarColorsProvider
 import io.element.android.libraries.designsystem.components.EqualWidthColumn
@@ -666,6 +669,7 @@ private fun MessageEventBubbleContent(
         eventSink: (TimelineEvent.TimelineItemEvent) -> Unit,
         modifier: Modifier = Modifier,
         canShrinkContent: Boolean = false,
+        timestampLeadingContent: (@Composable () -> Unit)? = null,
         content: @Composable (onContentLayoutChange: (ContentAvoidingLayoutData) -> Unit) -> Unit,
     ) {
         @Suppress("NAME_SHADOWING")
@@ -727,13 +731,32 @@ private fun MessageEventBubbleContent(
             TimestampPosition.Below ->
                 Column(modifier) {
                     content {}
-                    TimelineEventTimestampView(
-                        event = event,
-                        eventSink = eventSink,
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                    if (timestampLeadingContent != null) {
+                        // Extras stick to the start, the timestamp to the end; the weighted
+                        // spacer keeps the timestamp right-aligned even when the extras
+                        // compose nothing.
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            timestampLeadingContent()
+                            Spacer(Modifier.weight(1f))
+                            TimelineEventTimestampView(
+                                event = event,
+                                eventSink = eventSink,
+                            )
+                        }
+                    } else {
+                        TimelineEventTimestampView(
+                            event = event,
+                            eventSink = eventSink,
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             TimestampPosition.Hidden -> Box(modifier) { content {} }
         }
@@ -748,6 +771,7 @@ private fun MessageEventBubbleContent(
         inReplyToDetails: InReplyToDetails?,
         modifier: Modifier = Modifier,
         canShrinkContent: Boolean = false,
+        timestampLeadingContent: (@Composable () -> Unit)? = null,
     ) {
         val timestampLayoutModifier =
             if (inReplyToDetails != null && timestampPosition == TimestampPosition.Overlay) {
@@ -782,6 +806,7 @@ private fun MessageEventBubbleContent(
                 timestampPosition = timestampPosition,
                 eventSink = eventSink,
                 canShrinkContent = canShrinkContent,
+                timestampLeadingContent = timestampLeadingContent,
                 modifier = timestampLayoutModifier.semantics(mergeDescendants = false) {
                     isTraversalGroup = true
                     traversalIndex = -1f
@@ -871,6 +896,7 @@ private fun MessageEventBubbleContent(
                 if (shouldHide) TimestampPosition.Hidden else TimestampPosition.Overlay
             }
             is TimelineItemPollContent -> TimestampPosition.Below
+            is TimelineItemVoiceContent -> TimestampPosition.Below
             else -> TimestampPosition.Default
         }
     }
@@ -888,14 +914,24 @@ private fun MessageEventBubbleContent(
             else -> ContentPadding.Textual
         }
     }
-    CommonLayout(
-        showThreadDecoration = timelineMode !is Timeline.Mode.Thread && event.threadInfo is TimelineItemThreadInfo.ThreadResponse,
-        timestampPosition = timestampPosition,
-        paddingBehaviour = paddingBehaviour,
-        inReplyToDetails = event.inReplyTo,
-        canShrinkContent = event.content is TimelineItemVoiceContent,
-        modifier = bubbleModifier,
-    )
+    val isVoiceMessage = event.content is TimelineItemVoiceContent
+    // Per-event bridge so the voice transcript UI (created inside the content)
+    // can surface progress and model attribution in the timestamp row.
+    val voiceTranscriptHolder = remember(event.eventId) { TimelineVoiceTranscriptHolder() }
+    CompositionLocalProvider(LocalTimelineVoiceTranscriptHolder provides voiceTranscriptHolder) {
+        CommonLayout(
+            showThreadDecoration = timelineMode !is Timeline.Mode.Thread && event.threadInfo is TimelineItemThreadInfo.ThreadResponse,
+            timestampPosition = timestampPosition,
+            paddingBehaviour = paddingBehaviour,
+            inReplyToDetails = event.inReplyTo,
+            timestampLeadingContent = if (isVoiceMessage) {
+                { VoiceTranscriptTimestampExtras() }
+            } else {
+                null
+            },
+            modifier = bubbleModifier,
+        )
+    }
 }
 
 @PreviewsDayNight

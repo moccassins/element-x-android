@@ -233,6 +233,7 @@ Compose:
       - LocalMediaItemPresenterFactories
       - LocalTimelineItemPresenterFactories
       - LocalVoiceTranscriptPresenterFactory
+      - LocalTimelineVoiceTranscriptHolder
       - LocalRoomMemberProfilesCache
       - LocalMentionSpanUpdater
       - LocalAnalyticsService
