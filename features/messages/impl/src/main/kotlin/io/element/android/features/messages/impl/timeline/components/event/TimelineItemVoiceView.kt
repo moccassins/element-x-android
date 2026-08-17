@@ -9,6 +9,7 @@
 package io.element.android.features.messages.impl.timeline.components.event
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
@@ -43,6 +46,9 @@ import io.element.android.compound.tokens.generated.CompoundIcons
 import io.element.android.features.messages.impl.timeline.components.layout.ContentAvoidingLayoutData
 import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVoiceContent
 import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVoiceContentProvider
+import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptEvent
+import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptState
+import io.element.android.features.messages.impl.voicemessages.transcript.aVoiceTranscriptState
 import io.element.android.libraries.designsystem.atomic.atoms.PlaybackSpeedButton
 import io.element.android.libraries.designsystem.components.media.WaveformPlaybackView
 import io.element.android.libraries.designsystem.preview.ElementPreview
@@ -57,6 +63,7 @@ import io.element.android.libraries.ui.utils.a11y.isTalkbackActive
 import io.element.android.libraries.voiceplayer.api.VoiceMessageEvent
 import io.element.android.libraries.voiceplayer.api.VoiceMessageState
 import io.element.android.libraries.voiceplayer.api.VoiceMessageStateProvider
+import io.element.android.libraries.voiceplayer.api.aVoiceMessageState
 import kotlinx.coroutines.delay
 
 @Composable
@@ -66,12 +73,22 @@ fun TimelineItemVoiceView(
     onContentLayoutChange: (ContentAvoidingLayoutData) -> Unit,
     contentValidationValue: ContentValidationValue,
     modifier: Modifier = Modifier,
+    voiceTranscriptState: VoiceTranscriptState? = null,
 ) {
     fun playPause() {
         state.eventSink(VoiceMessageEvent.PlayPause)
     }
 
     val a11y = stringResource(CommonStrings.common_voice_message)
+    val talkbackActive = isTalkbackActive()
+    // Persistent, Telegram-style: starts the transcription and re-runs it once a
+    // transcript exists. Only hidden for TalkBack users (the transcript box offers
+    // a text link instead, since this row clears its children's semantics) and
+    // while no model is available.
+    val showTranscribeButton = voiceTranscriptState != null &&
+        !talkbackActive &&
+        voiceTranscriptState.visible &&
+        voiceTranscriptState.canTranscribe
     val a11yActionLabel = stringResource(
         when (state.buttonType) {
             VoiceMessageState.ButtonType.Play -> CommonStrings.a11y_play
@@ -104,7 +121,7 @@ fun TimelineItemVoiceView(
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (!isTalkbackActive()) {
+        if (!talkbackActive) {
             if (contentValidationValue.isValid()) {
                 when (state.buttonType) {
                     VoiceMessageState.ButtonType.Play -> PlayButton(onClick = ::playPause)
@@ -142,9 +159,22 @@ fun TimelineItemVoiceView(
             modifier = Modifier
                 .weight(1f)
                 .height(34.dp),
-            seekEnabled = !isTalkbackActive(),
+            seekEnabled = !talkbackActive,
             onSeek = { state.eventSink(VoiceMessageEvent.Seek(it)) },
         )
+        if (voiceTranscriptState != null && showTranscribeButton) {
+            Spacer(Modifier.width(8.dp))
+            TranscribeButton(
+                // Tapping again once a transcript exists re-runs it with the current model.
+                onClick = {
+                    if (voiceTranscriptState.text != null) {
+                        voiceTranscriptState.eventSink(VoiceTranscriptEvent.Retranscribe)
+                    } else {
+                        voiceTranscriptState.eventSink(VoiceTranscriptEvent.Transcribe)
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -261,6 +291,40 @@ private fun CustomIconButton(
     )
 }
 
+/**
+ * Telegram-style speech-to-text affordance rendered at the end of the player row.
+ * Mirrors [PlaybackSpeedButton]'s pill style so it blends into the player and
+ * follows theme changes. Starts the transcription; the resulting text is shown
+ * by [VoiceTranscriptBox] between the player and the timestamp, progress and
+ * attribution in the timestamp row.
+ */
+@Composable
+private fun TranscribeButton(
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(color = ElementTheme.colors.bgCanvasDefault)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Icon(
+            imageVector = CompoundIcons.ArrowRight(),
+            contentDescription = null,
+            tint = ElementTheme.colors.iconSecondary,
+            modifier = Modifier.size(12.dp),
+        )
+        Text(
+            text = "A",
+            style = ElementTheme.typography.fontBodyXsMedium,
+            color = ElementTheme.colors.iconSecondary,
+        )
+    }
+}
+
 open class TimelineItemVoiceViewParametersProvider : PreviewParameterProvider<TimelineItemVoiceViewParameters> {
     private val voiceMessageStateProvider = VoiceMessageStateProvider()
     private val timelineItemVoiceContentProvider = TimelineItemVoiceContentProvider()
@@ -316,4 +380,16 @@ internal fun ProgressButtonPreview() = ElementPreview {
         ProgressButton(displayImmediately = true)
         ProgressButton(displayImmediately = false)
     }
+}
+
+@PreviewsDayNight
+@Composable
+internal fun TimelineItemVoiceViewWithTranscribeButtonPreview() = ElementPreview {
+    TimelineItemVoiceView(
+        state = aVoiceMessageState(),
+        content = TimelineItemVoiceContentProvider().values.first(),
+        onContentLayoutChange = {},
+        contentValidationValue = ContentValidationValue.Valid,
+        voiceTranscriptState = aVoiceTranscriptState(),
+    )
 }

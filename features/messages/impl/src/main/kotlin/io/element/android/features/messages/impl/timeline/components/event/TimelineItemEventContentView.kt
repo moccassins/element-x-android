@@ -9,6 +9,7 @@
 package io.element.android.features.messages.impl.timeline.components.event
 
 import android.text.SpannedString
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LocalContentColor
@@ -51,6 +52,8 @@ import io.element.android.features.messages.impl.timeline.model.event.ensureActi
 import io.element.android.features.messages.impl.timeline.model.event.formattedCaptionOrNull
 import io.element.android.features.messages.impl.timeline.protection.TimelineProtectionEvent
 import io.element.android.features.messages.impl.timeline.protection.TimelineProtectionState
+import io.element.android.features.messages.impl.voicemessages.transcript.LocalVoiceTranscriptPresenterFactory
+import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptBox
 import io.element.android.libraries.architecture.Presenter
 import io.element.android.libraries.designsystem.components.EqualWidthColumn
 import io.element.android.libraries.matrix.api.core.EventId
@@ -220,12 +223,21 @@ fun TimelineItemEventContentView(
                 )
                 is TimelineItemVoiceContent -> {
                     val presenter: Presenter<VoiceMessageState> = presenterFactories.rememberPresenter(content)
-                    TimelineItemVoiceView(
-                        state = presenter.present(),
-                        content = content,
-                        onContentLayoutChange = calculatedOnContentLayoutChange,
-                        contentValidationValue = overallValidationState,
-                    )
+                    val transcriptFactory = LocalVoiceTranscriptPresenterFactory.current
+                    val transcriptPresenter = remember(content) { transcriptFactory?.create(content) }
+                    val transcriptState = transcriptPresenter?.present()
+                    Column {
+                        TimelineItemVoiceView(
+                            state = presenter.present(),
+                            content = content,
+                            onContentLayoutChange = calculatedOnContentLayoutChange,
+                            contentValidationValue = overallValidationState,
+                            voiceTranscriptState = transcriptState,
+                        )
+                        if (transcriptState != null) {
+                            VoiceTranscriptBox(state = transcriptState)
+                        }
+                    }
                 }
                 is TimelineItemRtcNotificationContent -> error("This shouldn't be rendered as the content of a bubble")
             }

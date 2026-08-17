@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- On-device voice transcription (Whisper). These are temporary English strings pending Localazy import by the core team. -->
+    <string name="action_transcribe">Transcribe</string>
+    <string name="screen_room_voice_transcript_transcribing">Transcribing…</string>
+    <string name="screen_room_voice_transcript_preparing_model">Preparing speech model…</string>
+    <string name="screen_room_voice_transcript_no_model">Select a speech model in Settings to transcribe</string>
+    <string name="screen_room_voice_transcript_failed">Transcription failed</string>
+    <string name="screen_room_voice_transcript_on_device">On device (%1$s)</string>
+    <string name="screen_room_voice_transcription_model_picker">Voice transcription model</string>
+</resources>
