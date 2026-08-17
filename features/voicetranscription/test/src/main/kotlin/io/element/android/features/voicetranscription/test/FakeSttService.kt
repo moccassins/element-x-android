@@ -24,9 +24,11 @@ import java.io.File
 class FakeSttService(
     initialActiveModel: SttModel = SttModel.TINY,
     initialStatus: Map<SttModel, SttModelStatus> = emptyMap(),
+    initialIsTranscribing: Boolean = false,
 ) : SttService {
     private val activeModelStateHolder = MutableStateFlow(initialActiveModel)
     private val statusState = MutableStateFlow(initialStatus)
+    private val isTranscribingHolder = MutableStateFlow(initialIsTranscribing)
     private val cache = mutableMapOf<EventId, SttService.CachedTranscription>()
 
     val selectedModels = mutableListOf<SttModel>()
@@ -35,9 +37,11 @@ class FakeSttService(
 
     override val activeModel: SttModel get() = activeModelStateHolder.value
     override val activeModelState: StateFlow<SttModel> get() = activeModelStateHolder.asStateFlow()
+    override val isTranscribing: StateFlow<Boolean> get() = isTranscribingHolder.asStateFlow()
     override val modelsStatus: StateFlow<Map<SttModel, SttModelStatus>> get() = statusState.asStateFlow()
 
     override fun setActiveModel(model: SttModel) {
+        if (isTranscribingHolder.value) return
         selectedModels += model
         activeModelStateHolder.value = model
     }
@@ -62,9 +66,17 @@ class FakeSttService(
         audioFile: File,
         onProgress: (Float) -> Unit,
     ): Result<String> {
-        val text = "transcript-${eventId.value}"
-        onProgress(1f)
-        cache[eventId] = SttService.CachedTranscription(text = text, modelId = activeModel?.id)
-        return Result.success(text)
+        if (isTranscribingHolder.value) {
+            return Result.failure(IllegalStateException("Another transcription is already running"))
+        }
+        isTranscribingHolder.value = true
+        try {
+            val text = "transcript-${eventId.value}"
+            onProgress(1f)
+            cache[eventId] = SttService.CachedTranscription(text = text, modelId = activeModel.id)
+            return Result.success(text)
+        } finally {
+            isTranscribingHolder.value = false
+        }
     }
 }

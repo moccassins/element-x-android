@@ -29,9 +29,13 @@ interface SttService {
     /** Per-model on-disk status, reactive. */
     val modelsStatus: StateFlow<Map<SttModel, SttModelStatus>>
 
+    /** Whether a transcription is currently running. While true, new runs and model switches are rejected. */
+    val isTranscribing: StateFlow<Boolean>
+
     /**
      * Selects the active model. If it is not yet downloaded this triggers a
-     * background download followed by a warm-up.
+     * background download followed by a warm-up. Ignored while a
+     * transcription is running.
      */
     fun setActiveModel(model: SttModel)
 
@@ -62,7 +66,7 @@ interface SttService {
      * Transcribes the decrypted voice [audioFile] using the active model.
      * The spoken language is detected by Whisper itself. [onProgress] is
      * invoked with `0f..1f` as 30 s chunks complete. The result is cached by
-     * [eventId].
+     * [eventId]. Fails if another transcription is already running.
      */
     suspend fun transcribe(
         eventId: EventId,

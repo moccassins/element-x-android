@@ -37,6 +37,9 @@ class SttSettingsPresenter(
         val statuses by produceState(initialValue = sttService.modelsStatus.value) {
             sttService.modelsStatus.collect { value = it }
         }
+        val isTranscribing by produceState(initialValue = false) {
+            sttService.isTranscribing.collect { value = it }
+        }
         val scope = rememberCoroutineScope()
 
         fun handleEvent(event: SttSettingsEvent) {
@@ -44,7 +47,9 @@ class SttSettingsPresenter(
                 is SttSettingsEvent.SetEnabled -> scope.launch {
                     appPreferencesStore.setVoiceTranscriptionEnabled(event.enabled)
                 }
-                is SttSettingsEvent.Select -> if (enabled) sttService.setActiveModel(event.model)
+                // Switching models mid-run would attribute the pending transcript
+                // to the wrong model; the service rejects it, so guard here too.
+                is SttSettingsEvent.Select -> if (enabled && !isTranscribing) sttService.setActiveModel(event.model)
                 is SttSettingsEvent.Download -> if (enabled) sttService.downloadModel(event.model)
                 is SttSettingsEvent.Delete -> if (enabled) scope.launch { sttService.deleteModel(event.model) }
             }
@@ -61,6 +66,7 @@ class SttSettingsPresenter(
 
         return SttSettingsState(
             enabled = enabled,
+            isTranscribing = isTranscribing,
             models = models,
             eventSink = ::handleEvent,
         )

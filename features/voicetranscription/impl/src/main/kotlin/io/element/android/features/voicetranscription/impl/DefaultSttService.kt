@@ -49,6 +49,7 @@ class DefaultSttService(
     private val cache = ConcurrentHashMap<EventId, SttService.CachedTranscription>()
 
     private val activeModelHolder = MutableStateFlow(SttModel.TINY)
+    private val isTranscribingHolder = MutableStateFlow(false)
     private var unloadJob: Job? = null
 
     init {
@@ -63,8 +64,12 @@ class DefaultSttService(
     override val activeModel: SttModel get() = activeModelHolder.value
     override val activeModelState get() = activeModelHolder.asStateFlow()
     override val modelsStatus get() = modelStore.status
+    override val isTranscribing get() = isTranscribingHolder.asStateFlow()
 
     override fun setActiveModel(model: SttModel) {
+        // Switching the resident model mid-run would attribute the pending
+        // transcript to the wrong model; wait for the run to finish.
+        if (isTranscribingHolder.value) return
         appScope.launch {
             preferences.setActiveModel(model)
             ensureReady(model)
@@ -96,6 +101,11 @@ class DefaultSttService(
         onProgress: (Float) -> Unit,
     ): Result<String> {
         cache[eventId]?.let { return Result.success(it.text) }
+        // Only one run at a time: the engine holds a single resident model
+        // and concurrent runs would queue behind the native lock anyway.
+        if (!isTranscribingHolder.compareAndSet(expect = false, update = true)) {
+            return Result.failure(IllegalStateException("Another transcription is already running"))
+        }
         val model = activeModelHolder.value
         return try {
             if (!modelStore.isReady(model)) {
@@ -114,6 +124,8 @@ class DefaultSttService(
         } catch (e: Exception) {
             Timber.w(e, "On-device transcription failed for %s", eventId.value)
             Result.failure(e)
+        } finally {
+            isTranscribingHolder.value = false
         }
     }
 

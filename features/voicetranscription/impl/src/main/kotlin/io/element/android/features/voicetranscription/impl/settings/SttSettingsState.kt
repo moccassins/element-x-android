@@ -24,6 +24,7 @@ data class SttModelUiState(
 @Immutable
 data class SttSettingsState(
     val enabled: Boolean,
+    val isTranscribing: Boolean,
     val models: ImmutableList<SttModelUiState>,
     val eventSink: (SttSettingsEvent) -> Unit,
 )

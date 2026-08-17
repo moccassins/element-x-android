@@ -93,7 +93,9 @@ internal fun SttModelListContent(
     Column(modifier = modifier.fillMaxWidth()) {
         state.models.forEach { model ->
             val enoughRam = deviceRamMb >= SttModels.forModel(model.model).recommendedRamMb
-            SttModelRow(model = model, enabled = state.enabled) { event ->
+            // The list is also disabled while a transcription is running, since
+            // the resident model must not change mid-run.
+            SttModelRow(model = model, enabled = state.enabled && !state.isTranscribing) { event ->
                 if (event is SttSettingsEvent.Delete || enoughRam) {
                     state.eventSink(event)
                 } else {
@@ -200,12 +202,14 @@ class SttSettingsStateProvider : PreviewParameterProvider<SttSettingsState> {
         aSttSettingsState(enabled = false),
         aSttSettingsState(enabled = true),
         aSttSettingsState(enabled = true, active = SttModel.BASE),
+        aSttSettingsState(enabled = true, isTranscribing = true),
     )
 }
 
 fun aSttSettingsState(
     enabled: Boolean = true,
     active: SttModel? = null,
+    isTranscribing: Boolean = false,
 ): SttSettingsState {
     val models: ImmutableList<SttModelUiState> = SttModel.entries.map { model ->
         SttModelUiState(
@@ -219,7 +223,7 @@ fun aSttSettingsState(
             isActive = model == active,
         )
     }.toImmutableList()
-    return SttSettingsState(enabled = enabled, models = models) { }
+    return SttSettingsState(enabled = enabled, isTranscribing = isTranscribing, models = models) { }
 }
 
 @PreviewsDayNight

@@ -134,4 +134,22 @@ class SttSettingsPresenterTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun `present - model selection is ignored while a transcription is running`() = runTest {
+        val service = FakeSttService(initialIsTranscribing = true)
+        val preferences = InMemoryAppPreferencesStore(voiceTranscriptionEnabled = true)
+        val presenter = SttSettingsPresenter(service, preferences)
+        moleculeFlow(RecompositionMode.Immediate) {
+            presenter.present()
+        }.test {
+            // Skip the initial (disabled) emission before the preference flow is collected
+            awaitItem()
+            val state = awaitItem()
+            assertThat(state.isTranscribing).isTrue()
+            state.eventSink(SttSettingsEvent.Select(SttModel.BASE))
+            assertThat(service.selectedModels).isEmpty()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 }
