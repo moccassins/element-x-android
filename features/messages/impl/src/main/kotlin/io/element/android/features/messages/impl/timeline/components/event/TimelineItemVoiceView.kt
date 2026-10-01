@@ -391,8 +391,8 @@ internal fun ProgressButtonPreview() = ElementPreview {
 @Composable
 internal fun TimelineItemVoiceViewWithTranscribeButtonPreview() = ElementPreview {
     TimelineItemVoiceView(
-        state = aVoiceMessageState(),
-        content = TimelineItemVoiceContentProvider().values.first(),
+        state = VoiceMessageStatePreviewParam().values.first(),
+        content = TimelineItemVoiceContentPreviewParam().values.first(),
         onContentLayoutChange = {},
         contentValidationValue = ContentValidationValue.Valid,
         voiceTranscriptState = aVoiceTranscriptState(),
