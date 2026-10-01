@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.TopAppBarDefaults.topAppBarColors
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -53,7 +52,6 @@ import io.element.android.libraries.matrix.api.verification.SessionVerificationD
 import io.element.android.libraries.matrix.api.verification.VerificationRequest
 import io.element.android.libraries.ui.strings.CommonStrings
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OutgoingVerificationView(
     state: OutgoingVerificationState,
@@ -65,13 +63,13 @@ fun OutgoingVerificationView(
     val step = state.step
     fun cancelOrResetFlow() {
         when (step) {
-            is Step.Canceled -> state.eventSink(OutgoingVerificationViewEvents.Reset)
+            is Step.Canceled -> state.eventSink(OutgoingVerificationViewEvent.Reset)
             Step.Initial -> onBack()
             Step.Completed -> onFinish()
-            Step.Ready, is Step.AwaitingOtherDeviceResponse -> state.eventSink(OutgoingVerificationViewEvents.Cancel)
+            Step.Ready, is Step.AwaitingOtherDeviceResponse -> state.eventSink(OutgoingVerificationViewEvent.Cancel)
             is Step.Verifying -> {
                 if (!step.state.isLoading()) {
-                    state.eventSink(OutgoingVerificationViewEvents.DeclineVerification)
+                    state.eventSink(OutgoingVerificationViewEvent.DeclineVerification)
                 }
             }
             else -> Unit
@@ -261,7 +259,7 @@ private fun OutgoingVerificationBottomMenu(
                     text = stringResource(CommonStrings.action_start_verification),
                     enabled = !isWaiting,
                     showProgress = isWaiting,
-                    onClick = { eventSink(OutgoingVerificationViewEvents.RequestVerification) },
+                    onClick = { eventSink(OutgoingVerificationViewEvent.RequestVerification) },
                 )
                 InvisibleButton()
             }
@@ -281,7 +279,7 @@ private fun OutgoingVerificationBottomMenu(
                 Button(
                     modifier = Modifier.fillMaxWidth(),
                     text = stringResource(CommonStrings.action_start),
-                    onClick = { eventSink(OutgoingVerificationViewEvents.StartSasVerification) },
+                    onClick = { eventSink(OutgoingVerificationViewEvent.StartSasVerification) },
                 )
                 TextButton(
                     modifier = Modifier.fillMaxWidth(),
@@ -299,7 +297,7 @@ private fun OutgoingVerificationBottomMenu(
                     enabled = !isVerifying,
                     showProgress = isVerifying,
                     onClick = {
-                        eventSink(OutgoingVerificationViewEvents.ConfirmVerification)
+                        eventSink(OutgoingVerificationViewEvent.ConfirmVerification)
                     },
                 )
                 TextButton(
@@ -307,7 +305,7 @@ private fun OutgoingVerificationBottomMenu(
                     text = stringResource(R.string.screen_session_verification_they_dont_match),
                     enabled = !isVerifying,
                     onClick = {
-                        eventSink(OutgoingVerificationViewEvents.DeclineVerification)
+                        eventSink(OutgoingVerificationViewEvent.DeclineVerification)
                     },
                 )
             }
@@ -328,7 +326,9 @@ private fun OutgoingVerificationBottomMenu(
 
 @PreviewsDayNight
 @Composable
-internal fun OutgoingVerificationViewPreview(@PreviewParameter(OutgoingVerificationStateProvider::class) state: OutgoingVerificationState) = ElementPreview {
+internal fun OutgoingVerificationViewPreview(@PreviewParameter(
+    OutgoingVerificationStatePreviewParam::class
+) state: OutgoingVerificationState) = ElementPreview {
     OutgoingVerificationView(
         state = state,
         onLearnMoreClick = {},

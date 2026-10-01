@@ -43,9 +43,8 @@ import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.dp
 import io.element.android.compound.theme.ElementTheme
 import io.element.android.compound.tokens.generated.CompoundIcons
-import io.element.android.features.messages.impl.timeline.components.layout.ContentAvoidingLayoutData
 import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVoiceContent
-import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVoiceContentProvider
+import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVoiceContentPreviewParam
 import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptEvent
 import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptState
 import io.element.android.features.messages.impl.voicemessages.transcript.aVoiceTranscriptState
@@ -58,12 +57,12 @@ import io.element.android.libraries.designsystem.theme.components.Icon
 import io.element.android.libraries.designsystem.theme.components.IconButton
 import io.element.android.libraries.designsystem.theme.components.Text
 import io.element.android.libraries.matrix.ui.media.contentvalidation.ContentValidationValue
+import io.element.android.libraries.ui.common.layout.ContentAvoidingLayoutData
 import io.element.android.libraries.ui.strings.CommonStrings
 import io.element.android.libraries.ui.utils.a11y.isTalkbackActive
 import io.element.android.libraries.voiceplayer.api.VoiceMessageEvent
 import io.element.android.libraries.voiceplayer.api.VoiceMessageState
-import io.element.android.libraries.voiceplayer.api.VoiceMessageStateProvider
-import io.element.android.libraries.voiceplayer.api.aVoiceMessageState
+import io.element.android.libraries.voiceplayer.api.VoiceMessageStatePreviewParam
 import kotlinx.coroutines.delay
 
 @Composable
@@ -159,6 +158,9 @@ fun TimelineItemVoiceView(
             modifier = Modifier
                 .weight(1f)
                 .height(34.dp),
+            isPlaying = state.isPlaying,
+            durationMs = state.durationMs,
+            playbackSpeed = state.playbackSpeed,
             seekEnabled = !talkbackActive,
             onSeek = { state.eventSink(VoiceMessageEvent.Seek(it)) },
         )
@@ -328,9 +330,9 @@ private fun TranscribeButton(
     }
 }
 
-open class TimelineItemVoiceViewParametersProvider : PreviewParameterProvider<TimelineItemVoiceViewParameters> {
-    private val voiceMessageStateProvider = VoiceMessageStateProvider()
-    private val timelineItemVoiceContentProvider = TimelineItemVoiceContentProvider()
+open class TimelineItemVoiceViewParametersPreviewParam : PreviewParameterProvider<TimelineItemVoiceViewParameters> {
+    private val voiceMessageStateProvider = VoiceMessageStatePreviewParam()
+    private val timelineItemVoiceContentProvider = TimelineItemVoiceContentPreviewParam()
     override val values: Sequence<TimelineItemVoiceViewParameters>
         get() = timelineItemVoiceContentProvider.values.flatMap { content ->
             voiceMessageStateProvider.values.map { state ->
@@ -350,7 +352,7 @@ data class TimelineItemVoiceViewParameters(
 @PreviewsDayNight
 @Composable
 internal fun TimelineItemVoiceViewPreview(
-    @PreviewParameter(TimelineItemVoiceViewParametersProvider::class) timelineItemVoiceViewParameters: TimelineItemVoiceViewParameters,
+    @PreviewParameter(TimelineItemVoiceViewParametersPreviewParam::class) timelineItemVoiceViewParameters: TimelineItemVoiceViewParameters,
 ) = ElementPreview {
     TimelineItemVoiceView(
         state = timelineItemVoiceViewParameters.state,
@@ -363,7 +365,7 @@ internal fun TimelineItemVoiceViewPreview(
 @PreviewsDayNight
 @Composable
 internal fun TimelineItemVoiceViewUnifiedPreview() = ElementPreview {
-    val timelineItemVoiceViewParametersProvider = TimelineItemVoiceViewParametersProvider()
+    val timelineItemVoiceViewParametersProvider = TimelineItemVoiceViewParametersPreviewParam()
     Column {
         timelineItemVoiceViewParametersProvider.values.forEach {
             TimelineItemVoiceView(

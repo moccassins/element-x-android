@@ -74,11 +74,13 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import java.io.File
 import java.util.Optional
+import kotlin.jvm.optionals.getOrNull
 
 class FakeMatrixClient(
     override val sessionId: SessionId = A_SESSION_ID,
     override val sessionPaths: SessionPaths = SessionPaths(fileDirectory = File("files"), cacheDirectory = File("cache")),
     override val deviceId: DeviceId = A_DEVICE_ID,
+    override val server: String = A_SERVER_NAME,
     override val homeserverUrl: String = A_HOMESERVER_URL,
     override val sessionCoroutineScope: CoroutineScope = TestScope(),
     private val userDisplayName: String? = A_USER_NAME,
@@ -99,7 +101,7 @@ class FakeMatrixClient(
     override val roomMembershipObserver: RoomMembershipObserver = RoomMembershipObserver(),
     private val homeserverCapabilitiesProvider: FakeHomeserverCapabilitiesProvider = FakeHomeserverCapabilitiesProvider(),
     private val accountManagementUrlResult: (AccountManagementAction?) -> Result<String?> = { lambdaError() },
-    private val resolveRoomAliasResult: (RoomAlias) -> Result<Optional<ResolvedRoomAlias>> = {
+    private val resolveRoomAliasResult: suspend (RoomAlias) -> Result<Optional<ResolvedRoomAlias>> = {
         Result.success(
             Optional.of(ResolvedRoomAlias(A_ROOM_ID, emptyList()))
         )
@@ -129,11 +131,11 @@ class FakeMatrixClient(
     private val markRoomAsFullyReadResult: (RoomId, EventId) -> Result<Unit> = { _, _ -> lambdaError() },
     private val markAllRoomsAsReadResult: () -> Result<Unit> = { Result.success(Unit) },
     private val performDatabaseVacuumLambda: () -> Result<Unit> = { lambdaError() },
-    private val getMapStyleUrlResult: () -> Result<String?> = { lambdaError() },
     private val getDatabaseSizesLambda: () -> Result<SdkStoreSizes> = { lambdaError() },
     private val resetWellKnownConfigLambda: () -> Result<Unit> = { lambdaError() },
     private val enableAutomaticCallStatusLambda: (Boolean) -> Unit = { },
     override val contentScanner: ContentScanner? = null,
+    private val isShuttingDownResult: () -> Boolean = { false },
 ) : MatrixClient {
     var setDisplayNameCalled: Boolean = false
         private set
@@ -148,6 +150,7 @@ class FakeMatrixClient(
     var setUserStatusResult: Result<Unit> = Result.success(Unit)
     var clearUserStatusResult: Result<Unit> = Result.success(Unit)
     var isUserStatusSupportedResult: Result<Boolean> = Result.success(true)
+    var isProfilesSlidingSyncExtensionSupportedResult: Result<Boolean> = Result.success(true)
 
     private val _userProfile: MutableStateFlow<MatrixUser> = MutableStateFlow(MatrixUser(sessionId, userDisplayName, userAvatarUrl))
     override val userProfile: StateFlow<MatrixUser> = _userProfile
@@ -171,6 +174,7 @@ class FakeMatrixClient(
     var knockRoomLambda: (RoomIdOrAlias, String, List<String>) -> Result<RoomInfo?> = { _, _, _ ->
         Result.success(null)
     }
+    var getRoomInfoLambda = { _: RoomId -> Result.success<RoomInfo?>(null) }
     var getRoomInfoFlowLambda = { _: RoomId ->
         flowOf<Optional<RoomInfo>>(Optional.empty())
     }
@@ -294,6 +298,8 @@ class FakeMatrixClient(
 
     override suspend fun isUserStatusSupported(): Result<Boolean> = isUserStatusSupportedResult
 
+    override suspend fun isProfilesSlidingSyncExtensionSupported(): Result<Boolean> = isProfilesSlidingSyncExtensionSupportedResult
+
     override fun enableAutomaticCallStatus(enabled: Boolean) = enableAutomaticCallStatusLambda(enabled)
 
     override suspend fun joinRoom(roomId: RoomId): Result<RoomInfo?> = joinRoomLambda(roomId)
@@ -305,6 +311,9 @@ class FakeMatrixClient(
     override suspend fun knockRoom(roomIdOrAlias: RoomIdOrAlias, message: String, serverNames: List<String>): Result<RoomInfo?> {
         return knockRoomLambda(roomIdOrAlias, message, serverNames)
     }
+
+    override val isShuttingDown: Boolean
+        get() = isShuttingDownResult()
 
     // Mocks
 
@@ -372,6 +381,8 @@ class FakeMatrixClient(
         return Result.success(visitedRoomsId)
     }
 
+    override suspend fun getRoomInfo(roomId: RoomId): Result<RoomInfo?> = getRoomInfoLambda(roomId)
+
     override fun getRoomInfoFlow(roomId: RoomId) = getRoomInfoFlowLambda(roomId)
 
     var setAllSendQueuesEnabledLambda = lambdaRecorder(ensureNeverCalled = true) { _: Boolean ->
@@ -433,10 +444,6 @@ class FakeMatrixClient(
 
     override suspend fun performDatabaseVacuum(): Result<Unit> {
         return performDatabaseVacuumLambda()
-    }
-
-    override suspend fun getMapStyleUrl(): Result<String?> = simulateLongTask {
-        getMapStyleUrlResult()
     }
 
     override suspend fun canLinkNewDevice(): Result<Boolean> = simulateLongTask {

@@ -31,6 +31,7 @@ import io.element.android.libraries.matrix.api.createroom.RoomPreset
 import io.element.android.libraries.matrix.api.linknewdevice.LinkDesktopHandler
 import io.element.android.libraries.matrix.api.linknewdevice.LinkMobileHandler
 import io.element.android.libraries.matrix.api.media.MatrixMediaLoader
+import io.element.android.libraries.matrix.api.media.MediaSource
 import io.element.android.libraries.matrix.api.oauth.AccountManagementAction
 import io.element.android.libraries.matrix.api.paths.SessionPaths
 import io.element.android.libraries.matrix.api.room.BaseRoom
@@ -135,6 +136,8 @@ import org.matrix.rustcomponents.sdk.use
 import timber.log.Timber
 import java.io.File
 import java.util.Optional
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.io.encoding.Base64
 import kotlin.jvm.optionals.getOrNull
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -142,10 +145,13 @@ import org.matrix.rustcomponents.sdk.CreateRoomParameters as RustCreateRoomParam
 import org.matrix.rustcomponents.sdk.RoomPreset as RustRoomPreset
 import org.matrix.rustcomponents.sdk.SyncService as ClientSyncService
 
+// Same value as AVATAR_THUMBNAIL_SIZE_IN_PIXEL in the matrixmedia module
+private const val AVATAR_THUMBNAIL_SIZE_IN_PIXEL = 240L
+
 @Suppress("LargeClass")
 class RustMatrixClient(
     override val sessionPaths: SessionPaths,
-    private val innerClient: Client,
+    val innerClient: Client,
     private val sessionStore: SessionStore,
     private val sessionDelegate: RustClientSessionDelegate,
     private val innerSyncService: ClientSyncService,
@@ -162,6 +168,7 @@ class RustMatrixClient(
 ) : MatrixClient {
     override val sessionId: UserId = UserId(innerClient.userId())
     override val deviceId: DeviceId = DeviceId(innerClient.deviceId())
+    override val server: String? = innerClient.server()
     override val homeserverUrl: String = innerClient.homeserver()
     override val sessionCoroutineScope = appCoroutineScope.childScope(dispatchers.main, "Session-$sessionId")
     private val sessionDispatcher = dispatchers.io.limitedParallelism(64)
@@ -287,7 +294,11 @@ class RustMatrixClient(
 
     private val ownProfileListener = object : ProfileListener {
         override fun onUpdate(profile: UserProfile) {
-            _userProfile.tryEmit(profile.map())
+            val matrixUser = profile.map()
+            _userProfile.tryEmit(matrixUser)
+            sessionCoroutineScope.launch {
+                storeUserProfile(matrixUser)
+            }
         }
     }
 
@@ -303,6 +314,10 @@ class RustMatrixClient(
     }
         .buffer(Channel.UNLIMITED)
         .stateIn(sessionCoroutineScope, started = SharingStarted.Eagerly, initialValue = persistentListOf())
+
+    private val _isShuttingDown = AtomicBoolean(false)
+    override val isShuttingDown: Boolean
+        get() = _isShuttingDown.get()
 
     init {
         // Make sure the session delegate has a reference to the client to be able to logout on auth error
@@ -320,7 +335,9 @@ class RustMatrixClient(
     }
 
     private suspend fun setupUserProfile() {
-        val supported = isUserStatusSupported().getOrDefault(false)
+        // Subscribing to own profile updates only requires the Profiles sliding sync extension,
+        // not the full user status capability (which also needs the status profile field to be settable).
+        val supported = isProfilesSlidingSyncExtensionSupported().getOrDefault(false)
         if (supported) {
             // No need to seed the data here, it's already stored by the sdk.
             ownProfileTaskHandle = innerClient.subscribeToOwnProfile(ownProfileListener)
@@ -477,12 +494,36 @@ class RustMatrixClient(
         .onSuccess { matrixUser ->
             // Also update our session storage
             _userProfile.emit(matrixUser)
-            sessionStore.updateUserProfile(
-                sessionId = sessionId.value,
-                displayName = matrixUser.displayName,
-                avatarUrl = matrixUser.avatarUrl,
-            )
+            storeUserProfile(matrixUser)
         }
+
+    /**
+     * Store the user profile in the session storage, including a base64 encoded thumbnail of the avatar,
+     * so that the avatar can be rendered without having to use this client.
+     */
+    private suspend fun storeUserProfile(matrixUser: MatrixUser) {
+        val avatarUrl = matrixUser.avatarUrl
+        val storedSession = sessionStore.getSession(sessionId.value)
+        val avatarData = when {
+            avatarUrl == null -> null
+            // Avatar has not changed, no need to download it again
+            avatarUrl == storedSession?.userAvatarUrl && storedSession.userAvatarData != null -> storedSession.userAvatarData
+            else -> matrixMediaLoader.loadMediaThumbnail(
+                source = MediaSource(avatarUrl),
+                width = AVATAR_THUMBNAIL_SIZE_IN_PIXEL,
+                height = AVATAR_THUMBNAIL_SIZE_IN_PIXEL,
+            )
+                .map { Base64.encode(it) }
+                .onFailure { Timber.w(it, "Unable to load the avatar thumbnail of the user") }
+                .getOrNull()
+        }
+        sessionStore.updateUserProfile(
+            sessionId = sessionId.value,
+            displayName = matrixUser.displayName,
+            avatarUrl = avatarUrl,
+            avatarData = avatarData,
+        )
+    }
 
     override suspend fun searchUsers(searchTerm: String, limit: Long): Result<MatrixSearchUserResults> =
         withContext(sessionDispatcher) {
@@ -527,6 +568,12 @@ class RustMatrixClient(
     override suspend fun isUserStatusSupported(): Result<Boolean> = withContext(sessionDispatcher) {
         runCatchingExceptions {
             innerClient.isUserStatusSupported()
+        }
+    }
+
+    override suspend fun isProfilesSlidingSyncExtensionSupported(): Result<Boolean> = withContext(sessionDispatcher) {
+        runCatchingExceptions {
+            innerClient.isProfilesSlidingSyncExtensionSupported()
         }
     }
 
@@ -666,11 +713,13 @@ class RustMatrixClient(
     }
 
     override suspend fun clearCache() {
+        _isShuttingDown.set(true)
         innerClient.clearCaches(innerSyncService)
         destroy()
     }
 
     override suspend fun logout(userInitiated: Boolean, ignoreSdkError: Boolean) {
+        _isShuttingDown.set(true)
         sessionCoroutineScope.cancel()
         // Remove current delegate so we don't receive an auth error
         clientDelegateTaskHandle?.cancelAndDestroy()
@@ -708,6 +757,8 @@ class RustMatrixClient(
     }
 
     override suspend fun deactivateAccount(password: String, eraseData: Boolean): Result<Unit> = withContext(sessionDispatcher) {
+        _isShuttingDown.set(true)
+
         Timber.w("Deactivating account")
         // Remove current delegate so we don't receive an auth error
         clientDelegateTaskHandle?.cancelAndDestroy()
@@ -758,6 +809,14 @@ class RustMatrixClient(
     override suspend fun uploadMedia(mimeType: String, data: ByteArray): Result<String> = withContext(sessionDispatcher) {
         runCatchingExceptions {
             innerClient.uploadMedia(mimeType, data, progressWatcher = null)
+        }
+    }
+
+    override suspend fun getRoomInfo(roomId: RoomId): Result<RoomInfo?> = withContext(sessionDispatcher) {
+        runCatchingExceptions {
+            innerRoomListService.roomOrNull(roomId.value)?.use { room ->
+                roomInfoMapper.map(room.roomInfo())
+            }
         }
     }
 
@@ -883,12 +942,6 @@ class RustMatrixClient(
         runCatchingExceptions {
             Timber.d("Performing database vacuuming for session $sessionId...")
             innerClient.optimizeStores()
-        }
-    }
-
-    override suspend fun getMapStyleUrl(): Result<String?> = withContext(sessionDispatcher) {
-        runCatchingExceptions {
-            innerClient.tileServer()?.mapStyleUrl
         }
     }
 

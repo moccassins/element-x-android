@@ -6,8 +6,6 @@
  * Please see LICENSE files in the repository root for full details.
  */
 
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package io.element.android.libraries.mediaviewer.impl.viewer
 
 import androidx.activity.compose.BackHandler
@@ -36,7 +34,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
@@ -548,7 +545,6 @@ private fun rememberShowProgress(downloadedMedia: AsyncData<LocalMedia>): Boolea
     return showProgress
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MediaViewerTopBar(
     data: MediaViewerPageData.MediaViewerData,
@@ -749,7 +745,7 @@ private fun ErrorView(
 // Only preview in dark, dark theme is forced on the Node.
 @Preview
 @Composable
-internal fun MediaViewerViewPreview(@PreviewParameter(MediaViewerStateProvider::class) state: MediaViewerState) = ElementPreviewDark {
+internal fun MediaViewerViewPreview(@PreviewParameter(MediaViewerStatePreviewParam::class) state: MediaViewerState) = ElementPreviewDark {
     MediaViewerView(
         state = state,
         audioFocus = null,
@@ -760,7 +756,7 @@ internal fun MediaViewerViewPreview(@PreviewParameter(MediaViewerStateProvider::
 
 @Preview(device = "${Devices.PHONE}, orientation=landscape")
 @Composable
-internal fun MediaViewerViewLandscapePreview(@PreviewParameter(MediaViewerStateProvider::class) state: MediaViewerState) = ElementPreviewDark {
+internal fun MediaViewerViewLandscapePreview(@PreviewParameter(MediaViewerStatePreviewParam::class) state: MediaViewerState) = ElementPreviewDark {
     MediaViewerView(
         state = state,
         audioFocus = null,
