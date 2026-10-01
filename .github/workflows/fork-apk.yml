@@ -1,0 +1,56 @@
+name: Build APK
+
+on:
+  push:
+    branches: [feature/voicetranscription-timeline]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/voicetranscription-timeline
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android/sdk/ndk-bundle /usr/local/lib/android/sdk/tools /usr/local/lib/android/sdk/cmdline-tools || true
+
+      - name: Stamp build day into versionCode
+        run: |
+          DAY=$(date +%-d)
+          sed -i "s/private const val versionReleaseNumber = .*/private const val versionReleaseNumber = $DAY/" plugins/src/main/kotlin/Versions.kt
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleGplayDebug --no-daemon --stacktrace
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          find app/build/outputs/apk -name "*.apk" -exec cp {} out/ \;
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete rolling --yes --cleanup-tag || true
+          gh release create rolling out/*.apk --title "Fork build $(date -u +%F)" --notes "Automated build of feature/voicetranscription-timeline"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: out/*.apk
+          if-no-files-found: error

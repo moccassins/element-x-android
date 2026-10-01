@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- On-device voice transcription settings. Temporary English strings pending Localazy import. -->
+    <string name="screen_voice_transcription_title">Voice transcription</string>
+    <string name="screen_voice_transcription_enable_title">On-device voice transcription</string>
+    <string name="screen_voice_transcription_enable_description">Transcribe voice messages to text on-device using Whisper. Models are downloaded once on demand. Everything is processed locally.</string>
+    <string name="screen_voice_transcription_model_tiny">Tiny</string>
+    <string name="screen_voice_transcription_model_base">Base</string>
+    <string name="screen_voice_transcription_model_small">Small</string>
+    <string name="screen_voice_transcription_model_tiny_desc">Fastest · lower accuracy</string>
+    <string name="screen_voice_transcription_model_base_desc">Balanced (recommended)</string>
+    <string name="screen_voice_transcription_model_small_desc">Best accuracy · slowest</string>
+    <string name="screen_voice_transcription_active">Active</string>
+    <string name="screen_voice_transcription_size_mb">%1$d MB</string>
+    <string name="action_download_model">Download</string>
+    <string name="action_delete_model">Delete</string>
+    <string name="action_continue_anyway">Continue</string>
+    <string name="screen_voice_transcription_ram_warning_title">This model may not run well</string>
+    <string name="screen_voice_transcription_ram_warning_body">Your device may not have enough memory for a model this size. Transcription may fail or the app may crash. You can still try it.</string>
+</resources>

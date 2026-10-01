@@ -1,0 +1,49 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/voicetranscription-timeline
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge upstream/develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git remote add upstream https://github.com/element-hq/element-x-android.git
+          git fetch upstream develop
+          BEHIND=$(git rev-list --count HEAD..upstream/develop)
+          if [ "$BEHIND" = "0" ]; then
+            echo "nothing to do"
+            exit 0
+          fi
+          if git merge --no-edit upstream/develop; then
+            git push origin feature/voicetranscription-timeline
+            gh workflow run fork-apk.yml --ref feature/voicetranscription-timeline
+          else
+            git merge --abort
+            echo "::error::upstream merge conflicts with local changes; manual resolution required"
+            exit 1
+          fi

@@ -15,8 +15,10 @@ import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -42,15 +44,20 @@ import io.element.android.features.messages.impl.timeline.components.customreact
 import io.element.android.features.messages.impl.timeline.di.LocalTimelineItemPresenterFactories
 import io.element.android.features.messages.impl.timeline.di.TimelineItemPresenterFactories
 import io.element.android.features.messages.impl.timeline.model.TimelineItem
+import io.element.android.features.messages.impl.voicemessages.transcript.LocalVoiceTranscriptPresenterFactory
+import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptPresenter
 import io.element.android.features.roommembermoderation.api.ModerationAction
-import io.element.android.features.roommembermoderation.api.RoomMemberModerationEvents
+import io.element.android.features.roommembermoderation.api.RoomMemberModerationEvent
 import io.element.android.features.roommembermoderation.api.RoomMemberModerationRenderer
+import io.element.android.features.voicetranscription.impl.settings.SttModelPickerSheet
+import io.element.android.features.voicetranscription.impl.settings.SttSettingsPresenter
 import io.element.android.libraries.androidutils.browser.openUrlInChromeCustomTab
 import io.element.android.libraries.androidutils.system.openUrlInExternalApp
 import io.element.android.libraries.androidutils.system.toast
 import io.element.android.libraries.architecture.NodeInputs
 import io.element.android.libraries.architecture.callback
 import io.element.android.libraries.architecture.inputs
+import io.element.android.libraries.core.coroutine.CoroutineDispatchers
 import io.element.android.libraries.designsystem.utils.OnLifecycleEvent
 import io.element.android.libraries.di.RoomScope
 import io.element.android.libraries.di.annotations.ApplicationContext
@@ -67,11 +74,13 @@ import io.element.android.libraries.matrix.api.permalink.PermalinkParser
 import io.element.android.libraries.matrix.api.room.JoinedRoom
 import io.element.android.libraries.matrix.api.room.alias.matches
 import io.element.android.libraries.matrix.api.timeline.Timeline
+import io.element.android.libraries.matrix.api.timeline.TimelineProvider
 import io.element.android.libraries.matrix.api.timeline.item.TimelineItemDebugInfo
 import io.element.android.libraries.matrix.ui.media.contentvalidation.EventContentValidationCache
 import io.element.android.libraries.matrix.ui.media.contentvalidation.LocalEventContentValidationState
 import io.element.android.libraries.matrix.ui.model.getBestName
 import io.element.android.libraries.mediaplayer.api.MediaPlayer
+import io.element.android.libraries.preferences.api.store.AppPreferencesStore
 import io.element.android.libraries.ui.strings.CommonStrings
 import io.element.android.libraries.ui.utils.a11y.hasExternalKeyboard
 import io.element.android.libraries.ui.utils.a11y.isTalkbackActive
@@ -97,12 +106,16 @@ class MessagesNode(
     presenterFactory: MessagesPresenter.Factory,
     actionListPresenterFactory: ActionListPresenter.Factory,
     private val timelineItemPresenterFactories: TimelineItemPresenterFactories,
+    private val voiceTranscriptPresenterFactory: VoiceTranscriptPresenter.Factory,
+    private val sttSettingsPresenter: SttSettingsPresenter,
+    private val appPreferencesStore: AppPreferencesStore,
     private val mediaPlayer: MediaPlayer,
     private val permalinkParser: PermalinkParser,
     private val knockRequestsBannerRenderer: KnockRequestsBannerRenderer,
     private val roomMemberModerationRenderer: RoomMemberModerationRenderer,
     private val eventContentValidationCache: EventContentValidationCache,
     private val emojiPickerRenderer: EmojiPickerRenderer,
+    private val dispatchers: CoroutineDispatchers,
 ) : Node(buildContext, plugins = plugins), MessagesNavigator {
     data class Inputs(
         val focusedEventId: EventId?,
@@ -111,7 +124,12 @@ class MessagesNode(
     private val inputs = inputs<Inputs>()
     private val callback: Callback = callback()
 
-    private val timelineController = TimelineController(room, room.liveTimeline)
+    private val timelineController = TimelineController(
+        room = room,
+        liveTimeline = room.liveTimeline,
+        roomCoroutineScope = room.roomCoroutineScope,
+        dispatchers = dispatchers,
+    )
     private val presenter = presenterFactory.create(
         navigator = this,
         composerPresenter = messageComposerPresenterFactory.create(timelineController, this, threadRoot = null),
@@ -130,7 +148,7 @@ class MessagesNode(
         fun navigateToRoomMemberDetails(userId: UserId)
         fun handlePermalinkClick(data: PermalinkData)
         fun navigateToEventDebugInfo(eventId: EventId?, debugInfo: TimelineItemDebugInfo)
-        fun forwardEvent(eventId: EventId)
+        fun forwardEvent(eventId: EventId, timelineProvider: TimelineProvider)
         fun navigateToReportMessage(eventId: EventId, senderId: UserId)
         fun navigateToSendLocation()
         fun navigateToCreatePoll()
@@ -213,8 +231,8 @@ class MessagesNode(
         callback.navigateToEventDebugInfo(eventId, debugInfo)
     }
 
-    override fun forwardEvent(eventId: EventId) {
-        callback.forwardEvent(eventId)
+    override fun forwardEvent(eventId: EventId, timelineProvider: TimelineProvider) {
+        callback.forwardEvent(eventId, timelineProvider)
     }
 
     override fun navigateToReportMessage(eventId: EventId, senderId: UserId) {
@@ -267,9 +285,14 @@ class MessagesNode(
         val canUseOverlay = !isTalkbackActive() && !hasExternalKeyboard()
         CompositionLocalProvider(
             LocalTimelineItemPresenterFactories provides timelineItemPresenterFactories,
+            LocalVoiceTranscriptPresenterFactory provides voiceTranscriptPresenterFactory,
             LocalEventContentValidationState provides eventContentValidationCache,
         ) {
             val state = presenter.present()
+            var showSttModelPicker by remember { mutableStateOf(false) }
+            val voiceTranscriptionEnabled by appPreferencesStore
+                .getVoiceTranscriptionEnabledFlow()
+                .collectAsState(initial = false)
 
             BackHandler {
                 state.eventSink(MessagesEvent.MarkAsFullyReadAndExit)
@@ -324,6 +347,8 @@ class MessagesNode(
                 onJoinCallClick = { isAudioCall ->
                     callback.navigateToRoomCall(room.roomId, isAudioCall)
                 },
+                onOpenVoiceModelPicker = { showSttModelPicker = true },
+                voiceTranscriptionEnabled = voiceTranscriptionEnabled,
                 onViewAllPinnedMessagesClick = callback::navigateToPinnedMessagesList,
                 modifier = modifier,
                 knockRequestsBannerView = {
@@ -343,12 +368,18 @@ class MessagesNode(
                 },
                 onThreadsListClick = callback::navigateToThreadsList,
             )
+            if (showSttModelPicker) {
+                SttModelPickerSheet(
+                    state = sttSettingsPresenter.present(),
+                    onDismiss = { showSttModelPicker = false },
+                )
+            }
             roomMemberModerationRenderer.Render(
                 state = state.roomMemberModerationState,
                 onSelectAction = { action, target ->
                     when (action) {
                         is ModerationAction.DisplayProfile -> callback.navigateToRoomMemberDetails(target.userId)
-                        else -> state.roomMemberModerationState.eventSink(RoomMemberModerationEvents.ProcessAction(action, target))
+                        else -> state.roomMemberModerationState.eventSink(RoomMemberModerationEvent.ProcessAction(action, target))
                     }
                 },
                 onAvatarClick = { user ->

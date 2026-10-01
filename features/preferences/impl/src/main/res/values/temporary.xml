@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- On-device voice transcription entry in Settings. Temporary English string pending Localazy import. -->
+    <string name="screen_preferences_voice_transcription">Voice transcription</string>
+</resources>

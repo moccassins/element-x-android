@@ -16,17 +16,21 @@ import io.element.android.libraries.preferences.api.store.NotificationSound
 import io.element.android.libraries.preferences.api.store.NotificationSoundChannelConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 
 class InMemoryAppPreferencesStore(
     isDeveloperModeEnabled: Boolean = false,
+    isOtherAccountsExpanded: Boolean = true,
     customElementCallBaseUrl: String? = null,
     hideInviteAvatars: Boolean? = null,
     timelineMediaPreviewValue: MediaPreviewValue? = null,
     theme: String? = null,
     liveLocationMinimumDistanceUpdate: Int = 10,
+    voiceTranscriptionEnabled: Boolean = false,
     logLevel: LogLevel = LogLevel.INFO,
     traceLogPacks: Set<TraceLogPack> = emptySet(),
+    homeserverHistory: List<String> = emptyList(),
     messageSound: NotificationSound = NotificationSound.SystemDefault,
     messageSoundChannelVersion: Int = 0,
     messageSoundDisplayName: String? = null,
@@ -35,11 +39,14 @@ class InMemoryAppPreferencesStore(
     callRingtoneDisplayName: String? = null,
 ) : AppPreferencesStore {
     private val isDeveloperModeEnabled = MutableStateFlow(isDeveloperModeEnabled)
+    private val isOtherAccountsExpanded = MutableStateFlow(isOtherAccountsExpanded)
     private val customElementCallBaseUrl = MutableStateFlow(customElementCallBaseUrl)
     private val theme = MutableStateFlow(theme)
     private val liveLocationMinimumDistanceUpdate = MutableStateFlow(liveLocationMinimumDistanceUpdate)
+    private val voiceTranscriptionEnabled = MutableStateFlow(voiceTranscriptionEnabled)
     private val logLevel = MutableStateFlow(logLevel)
     private val tracingLogPacks = MutableStateFlow(traceLogPacks)
+    private val homeserverHistory = MutableStateFlow(homeserverHistory)
     private val hideInviteAvatars = MutableStateFlow(hideInviteAvatars)
     private val timelineMediaPreviewValue = MutableStateFlow(timelineMediaPreviewValue)
     private val messageSound = MutableStateFlow(messageSound)
@@ -55,6 +62,14 @@ class InMemoryAppPreferencesStore(
 
     override fun isDeveloperModeEnabledFlow(): Flow<Boolean> {
         return isDeveloperModeEnabled
+    }
+
+    override suspend fun setOtherAccountsExpanded(expanded: Boolean) {
+        isOtherAccountsExpanded.value = expanded
+    }
+
+    override fun isOtherAccountsExpandedFlow(): Flow<Boolean> {
+        return isOtherAccountsExpanded
     }
 
     override suspend fun setCustomElementCallBaseUrl(string: String?) {
@@ -79,6 +94,14 @@ class InMemoryAppPreferencesStore(
 
     override fun getLiveLocationMinimumDistanceInMetersUpdateFlow(): Flow<Int> {
         return liveLocationMinimumDistanceUpdate
+    }
+
+    override suspend fun setVoiceTranscriptionEnabled(enabled: Boolean) {
+        voiceTranscriptionEnabled.value = enabled
+    }
+
+    override fun getVoiceTranscriptionEnabledFlow(): Flow<Boolean> {
+        return voiceTranscriptionEnabled
     }
 
     @Deprecated("Use MediaPreviewService instead. Kept only for migration.")
@@ -115,6 +138,18 @@ class InMemoryAppPreferencesStore(
 
     override fun getTracingLogPacksFlow(): Flow<Set<TraceLogPack>> {
         return tracingLogPacks
+    }
+
+    override fun getHomeserverHistoryFlow(): Flow<List<String>> {
+        return homeserverHistory
+    }
+
+    override suspend fun addHomeserverToHistory(url: String) {
+        val normalized = url.trim().lowercase()
+        if (normalized.isEmpty()) return
+        homeserverHistory.update { current ->
+            (listOf(normalized) + current.filter { it != normalized }).take(10)
+        }
     }
 
     override fun getMessageSoundFlow(): Flow<NotificationSound> {

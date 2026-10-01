@@ -49,7 +49,9 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
@@ -70,8 +72,6 @@ import io.element.android.features.messages.impl.timeline.TimelineEvent
 import io.element.android.features.messages.impl.timeline.TimelineRoomInfo
 import io.element.android.features.messages.impl.timeline.aTimelineItemEvent
 import io.element.android.features.messages.impl.timeline.components.event.TimelineItemEventContentView
-import io.element.android.features.messages.impl.timeline.components.layout.ContentAvoidingLayout
-import io.element.android.features.messages.impl.timeline.components.layout.ContentAvoidingLayoutData
 import io.element.android.features.messages.impl.timeline.components.receipt.ReadReceiptViewState
 import io.element.android.features.messages.impl.timeline.components.receipt.TimelineItemReadReceiptView
 import io.element.android.features.messages.impl.timeline.model.TimelineItem
@@ -93,6 +93,9 @@ import io.element.android.features.messages.impl.timeline.model.event.aTimelineI
 import io.element.android.features.messages.impl.timeline.model.event.ensureActiveLiveLocation
 import io.element.android.features.messages.impl.timeline.protection.TimelineProtectionState
 import io.element.android.features.messages.impl.timeline.protection.mustBeProtected
+import io.element.android.features.messages.impl.voicemessages.transcript.LocalTimelineVoiceTranscriptHolder
+import io.element.android.features.messages.impl.voicemessages.transcript.TimelineVoiceTranscriptHolder
+import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptTimestampExtras
 import io.element.android.libraries.architecture.AsyncData
 import io.element.android.libraries.designsystem.colors.AvatarColorsProvider
 import io.element.android.libraries.designsystem.components.EqualWidthColumn
@@ -137,6 +140,8 @@ import io.element.android.libraries.matrix.ui.messages.sender.SenderName
 import io.element.android.libraries.matrix.ui.messages.sender.SenderNameMode
 import io.element.android.libraries.testtags.TestTags
 import io.element.android.libraries.testtags.testTag
+import io.element.android.libraries.ui.common.layout.ContentAvoidingLayout
+import io.element.android.libraries.ui.common.layout.ContentAvoidingLayoutData
 import io.element.android.libraries.ui.strings.CommonPlurals
 import io.element.android.libraries.ui.strings.CommonStrings
 import io.element.android.libraries.ui.utils.a11y.isTalkbackActive
@@ -217,13 +222,23 @@ fun TimelineItemEventRow(
         inReplyToClick(inReplyToEventId)
     }
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    val canReply = timelineRoomInfo.userHasPermissionToSendMessage && event.canBeRepliedTo
+    val accessibilityActions = rememberTimelineItemAccessibilityActions(
+        canReply = canReply,
+        onLongClick = onLongClick,
+        onSwipeToReply = onSwipeToReply,
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { customActions = accessibilityActions }
+    ) {
         if (event.groupPosition.isNew()) {
             Spacer(modifier = Modifier.height(16.dp))
         } else {
             Spacer(modifier = Modifier.height(2.dp))
         }
-        val canReply = timelineRoomInfo.userHasPermissionToSendMessage && event.canBeRepliedTo
         if (canReply) {
             val state: SwipeableActionsState = rememberSwipeableActionsState()
             val offset = state.offset.floatValue
@@ -316,6 +331,40 @@ fun TimelineItemEventRow(
             onReadReceiptsClick = { onReadReceiptClick(event) },
             modifier = Modifier.padding(top = 4.dp)
         )
+    }
+}
+
+/**
+ * Exposes the gestures of a timeline item — long press for the action list, swipe for a reply — as TalkBack actions, since neither gesture is reachable
+ * with a screen reader enabled.
+ */
+@Composable
+private fun rememberTimelineItemAccessibilityActions(
+    canReply: Boolean,
+    onLongClick: () -> Unit,
+    onSwipeToReply: () -> Unit,
+): List<CustomAccessibilityAction> {
+    val messageActionsLabel = stringResource(CommonStrings.common_message_actions)
+    val replyLabel = stringResource(CommonStrings.action_reply)
+    val latestOnLongClick by rememberUpdatedState(onLongClick)
+    val latestOnSwipeToReply by rememberUpdatedState(onSwipeToReply)
+    return remember(canReply, messageActionsLabel, replyLabel) {
+        buildList {
+            add(
+                CustomAccessibilityAction(messageActionsLabel) {
+                    latestOnLongClick()
+                    true
+                }
+            )
+            if (canReply) {
+                add(
+                    CustomAccessibilityAction(replyLabel) {
+                        latestOnSwipeToReply()
+                        true
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -666,6 +715,7 @@ private fun MessageEventBubbleContent(
         eventSink: (TimelineEvent.TimelineItemEvent) -> Unit,
         modifier: Modifier = Modifier,
         canShrinkContent: Boolean = false,
+        timestampLeadingContent: (@Composable () -> Unit)? = null,
         content: @Composable (onContentLayoutChange: (ContentAvoidingLayoutData) -> Unit) -> Unit,
     ) {
         @Suppress("NAME_SHADOWING")
@@ -727,13 +777,32 @@ private fun MessageEventBubbleContent(
             TimestampPosition.Below ->
                 Column(modifier) {
                     content {}
-                    TimelineEventTimestampView(
-                        event = event,
-                        eventSink = eventSink,
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                    if (timestampLeadingContent != null) {
+                        // Extras stick to the start, the timestamp to the end; the weighted
+                        // spacer keeps the timestamp right-aligned even when the extras
+                        // compose nothing.
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            timestampLeadingContent()
+                            Spacer(Modifier.weight(1f))
+                            TimelineEventTimestampView(
+                                event = event,
+                                eventSink = eventSink,
+                            )
+                        }
+                    } else {
+                        TimelineEventTimestampView(
+                            event = event,
+                            eventSink = eventSink,
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             TimestampPosition.Hidden -> Box(modifier) { content {} }
         }
@@ -748,6 +817,7 @@ private fun MessageEventBubbleContent(
         inReplyToDetails: InReplyToDetails?,
         modifier: Modifier = Modifier,
         canShrinkContent: Boolean = false,
+        timestampLeadingContent: (@Composable () -> Unit)? = null,
     ) {
         val timestampLayoutModifier =
             if (inReplyToDetails != null && timestampPosition == TimestampPosition.Overlay) {
@@ -782,6 +852,7 @@ private fun MessageEventBubbleContent(
                 timestampPosition = timestampPosition,
                 eventSink = eventSink,
                 canShrinkContent = canShrinkContent,
+                timestampLeadingContent = timestampLeadingContent,
                 modifier = timestampLayoutModifier.semantics(mergeDescendants = false) {
                     isTraversalGroup = true
                     traversalIndex = -1f
@@ -871,6 +942,7 @@ private fun MessageEventBubbleContent(
                 if (shouldHide) TimestampPosition.Hidden else TimestampPosition.Overlay
             }
             is TimelineItemPollContent -> TimestampPosition.Below
+            is TimelineItemVoiceContent -> TimestampPosition.Below
             else -> TimestampPosition.Default
         }
     }
@@ -888,14 +960,24 @@ private fun MessageEventBubbleContent(
             else -> ContentPadding.Textual
         }
     }
-    CommonLayout(
-        showThreadDecoration = timelineMode !is Timeline.Mode.Thread && event.threadInfo is TimelineItemThreadInfo.ThreadResponse,
-        timestampPosition = timestampPosition,
-        paddingBehaviour = paddingBehaviour,
-        inReplyToDetails = event.inReplyTo,
-        canShrinkContent = event.content is TimelineItemVoiceContent,
-        modifier = bubbleModifier,
-    )
+    val isVoiceMessage = event.content is TimelineItemVoiceContent
+    // Per-event bridge so the voice transcript UI (created inside the content)
+    // can surface progress and model attribution in the timestamp row.
+    val voiceTranscriptHolder = remember(event.eventId) { TimelineVoiceTranscriptHolder() }
+    CompositionLocalProvider(LocalTimelineVoiceTranscriptHolder provides voiceTranscriptHolder) {
+        CommonLayout(
+            showThreadDecoration = timelineMode !is Timeline.Mode.Thread && event.threadInfo is TimelineItemThreadInfo.ThreadResponse,
+            timestampPosition = timestampPosition,
+            paddingBehaviour = paddingBehaviour,
+            inReplyToDetails = event.inReplyTo,
+            timestampLeadingContent = if (isVoiceMessage) {
+                { VoiceTranscriptTimestampExtras() }
+            } else {
+                null
+            },
+            modifier = bubbleModifier,
+        )
+    }
 }
 
 @PreviewsDayNight

@@ -12,7 +12,6 @@ import com.google.common.truth.Truth.assertThat
 import io.element.android.features.home.impl.roomlist.aRoomListState
 import io.element.android.features.home.impl.spaces.HomeSpacesState
 import io.element.android.features.home.impl.spaces.aHomeSpacesState
-import io.element.android.features.logout.api.direct.aDirectLogoutState
 import io.element.android.features.rageshake.api.RageshakeFeatureAvailability
 import io.element.android.libraries.architecture.Presenter
 import io.element.android.libraries.designsystem.utils.snackbar.SnackbarDispatcher
@@ -81,7 +80,7 @@ class HomePresenterTest {
         val presenter = createHomePresenter(
             rageshakeFeatureAvailability = { flowOf(true) },
             sessionStore = InMemorySessionStore(
-                updateUserProfileResult = { _, _, _ -> },
+                updateUserProfileResult = { _, _, _, _ -> },
             ),
         )
         presenter.test {
@@ -98,7 +97,7 @@ class HomePresenterTest {
         val presenter = createHomePresenter(
             indicatorService = indicatorService,
             sessionStore = InMemorySessionStore(
-                updateUserProfileResult = { _, _, _ -> },
+                updateUserProfileResult = { _, _, _, _ -> },
             ),
         )
         presenter.test {
@@ -120,7 +119,7 @@ class HomePresenterTest {
         val presenter = createHomePresenter(
             client = matrixClient,
             sessionStore = InMemorySessionStore(
-                updateUserProfileResult = { _, _, _ -> },
+                updateUserProfileResult = { _, _, _, _ -> },
             ),
         )
         presenter.test {
@@ -134,7 +133,7 @@ class HomePresenterTest {
     fun `present - NavigationBar change`() = runTest {
         val presenter = createHomePresenter(
             sessionStore = InMemorySessionStore(
-                updateUserProfileResult = { _, _, _ -> },
+                updateUserProfileResult = { _, _, _, _ -> },
             ),
         )
         presenter.test {
@@ -162,7 +161,6 @@ internal fun createHomePresenter(
     indicatorService = indicatorService,
     roomListPresenter = { aRoomListState() },
     homeSpacesPresenter = homeSpacesPresenter,
-    logoutPresenter = { aDirectLogoutState() },
     rageshakeFeatureAvailability = rageshakeFeatureAvailability,
     sessionStore = sessionStore,
 )

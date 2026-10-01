@@ -11,8 +11,10 @@ package io.element.android.appnav
 import android.os.Parcelable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
@@ -46,14 +48,17 @@ import io.element.android.appnav.room.RoomFlowNode
 import io.element.android.appnav.room.RoomNavigationTarget
 import io.element.android.appnav.room.joined.JoinedRoomLoadedFlowNode
 import io.element.android.compound.colors.SemanticColorsLightDark
+import io.element.android.features.callnative.api.NativeCallHost
 import io.element.android.features.createroom.api.CreateRoomEntryPoint
 import io.element.android.features.enterprise.api.EnterpriseService
 import io.element.android.features.enterprise.api.SessionEnterpriseService
+import io.element.android.features.enterprise.api.remoteconfig.CustomMapTilerConfigProvider
 import io.element.android.features.ftue.api.FtueEntryPoint
 import io.element.android.features.ftue.api.state.FtueService
 import io.element.android.features.ftue.api.state.FtueState
 import io.element.android.features.home.api.HomeEntryPoint
 import io.element.android.features.linknewdevice.api.LinkNewDeviceEntryPoint
+import io.element.android.features.location.api.LocalMapTilerConfig
 import io.element.android.features.location.api.live.ActiveLiveLocationShareManager
 import io.element.android.features.networkmonitor.api.NetworkMonitor
 import io.element.android.features.networkmonitor.api.NetworkStatus
@@ -92,6 +97,7 @@ import io.element.android.libraries.matrix.api.verification.SessionVerificationS
 import io.element.android.libraries.matrix.api.verification.VerificationRequest
 import io.element.android.libraries.preferences.api.store.AppPreferencesStore
 import io.element.android.libraries.push.api.notifications.conversations.NotificationConversationService
+import io.element.android.libraries.ui.common.nodes.EmptyState
 import io.element.android.libraries.ui.common.nodes.emptyNode
 import io.element.android.services.analytics.api.AnalyticsLongRunningTransaction
 import io.element.android.services.analytics.api.AnalyticsService
@@ -109,6 +115,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.Optional
 import java.util.UUID
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toKotlinDuration
@@ -138,6 +145,7 @@ class LoggedInFlowNode(
     private val shareEntryPoint: ShareEntryPoint,
     private val matrixClient: MatrixClient,
     private val sendingQueue: SendQueues,
+    private val nativeCallHost: NativeCallHost,
     private val incomingVerificationEntryPoint: IncomingVerificationEntryPoint,
     private val mediaPreviewConfigMigration: MediaPreviewConfigMigration,
     private val sessionEnterpriseService: SessionEnterpriseService,
@@ -153,6 +161,7 @@ class LoggedInFlowNode(
     private val analyticsRoomListStateWatcher: AnalyticsRoomListStateWatcher,
     private val createRoomEntryPoint: CreateRoomEntryPoint,
     private val activeLiveLocationShareManager: ActiveLiveLocationShareManager,
+    private val customMapTilerConfigProvider: CustomMapTilerConfigProvider,
 ) : BaseFlowNode<LoggedInFlowNode.NavTarget>(
     backstack = BackStack(
         initialElement = NavTarget.Placeholder,
@@ -319,7 +328,9 @@ class LoggedInFlowNode(
 
     override fun resolve(navTarget: NavTarget, buildContext: BuildContext): Node {
         return when (navTarget) {
-            NavTarget.Placeholder -> emptyNode(buildContext)
+            // Rendered while the FtueState is Unknown. Render a loading state rather than nothing at all,
+            // since there is no guarantee that this state will be left.
+            NavTarget.Placeholder -> emptyNode(buildContext, state = EmptyState(delayBeforeShowingContent = 500.milliseconds))
             NavTarget.LoggedInPermanent -> {
                 val callback = object : LoggedInNode.Callback {
                     override fun navigateToNotificationTroubleshoot() {
@@ -330,11 +341,11 @@ class LoggedInFlowNode(
             }
             NavTarget.Home -> {
                 val callback = object : HomeEntryPoint.Callback {
-                    override fun navigateToRoom(roomId: RoomId, joinedRoom: JoinedRoom?) {
+                    override fun navigateToRoom(roomId: RoomId, eventId: EventId?, joinedRoom: JoinedRoom?) {
                         lifecycleScope.launch {
                             attachRoom(
                                 roomIdOrAlias = roomId.toRoomIdOrAlias(),
-                                initialElement = RoomNavigationTarget.Root(joinedRoom = joinedRoom),
+                                initialElement = RoomNavigationTarget.Root(joinedRoom = joinedRoom, eventId = eventId),
                                 clearBackstack = false,
                             )
                         }
@@ -677,6 +688,12 @@ class LoggedInFlowNode(
         val colors by remember {
             enterpriseService.semanticColorsFlow(sessionId = matrixClient.sessionId)
         }.collectAsState(SemanticColorsLightDark.default)
+
+        val currentMapTilerConfig = LocalMapTilerConfig.current
+        val updatedMapTilerConfig by produceState(currentMapTilerConfig) {
+            value = customMapTilerConfigProvider.get().getOrNull() ?: currentMapTilerConfig
+        }
+
         ElementThemeApp(
             appPreferencesStore = appPreferencesStore,
             featureFlagService = featureFlagService,
@@ -684,16 +701,22 @@ class LoggedInFlowNode(
             compoundDark = colors.dark,
             buildMeta = buildMeta,
         ) {
-            val isOnline by syncService.isOnline.collectAsState()
-            ConnectivityIndicatorContainer(
-                isOnline = isOnline,
-                modifier = modifier,
-            ) { contentModifier ->
-                Box(modifier = contentModifier) {
-                    val ftueState by ftueService.state.collectAsState()
-                    BackstackView(transitionHandler = rememberLoggedInFlowTransitionHandler(backstack))
-                    if (ftueState is FtueState.Complete) {
-                        PermanentChild(permanentNavModel = permanentNavModel, navTarget = NavTarget.LoggedInPermanent)
+            CompositionLocalProvider(LocalMapTilerConfig provides updatedMapTilerConfig) {
+                val isOnline by syncService.isOnline.collectAsState()
+                // Outside the connectivity indicator so the two strips stack rather than fight: an
+                // offline banner during a call belongs under the call bar, not over it.
+                nativeCallHost.Render(modifier = modifier) { callContentModifier ->
+                    ConnectivityIndicatorContainer(
+                        isOnline = isOnline,
+                        modifier = callContentModifier,
+                    ) { contentModifier ->
+                        Box(modifier = contentModifier) {
+                            val ftueState by ftueService.state.collectAsState()
+                            BackstackView(transitionHandler = rememberLoggedInFlowTransitionHandler(backstack))
+                            if (ftueState is FtueState.Complete) {
+                                PermanentChild(permanentNavModel = permanentNavModel, navTarget = NavTarget.LoggedInPermanent)
+                            }
+                        }
                     }
                 }
             }

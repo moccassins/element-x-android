@@ -8,6 +8,7 @@
 
 package io.element.android.libraries.preferences.impl.store
 
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -32,16 +33,23 @@ private val developerModeKey = booleanPreferencesKey("developerMode")
 private val customElementCallBaseUrlKey = stringPreferencesKey("elementCallBaseUrl")
 private val themeKey = stringPreferencesKey("theme")
 private val hideInviteAvatarsKey = booleanPreferencesKey("hideInviteAvatars")
+private val otherAccountsExpandedKey = booleanPreferencesKey("otherAccountsExpanded")
 private val timelineMediaPreviewValueKey = stringPreferencesKey("timelineMediaPreviewValue")
 private val liveLocationMinimumDistanceUpdateKey = intPreferencesKey("liveLocationMinimumDistanceUpdate")
+private val voiceTranscriptionEnabledKey = booleanPreferencesKey("voiceTranscriptionEnabled")
 private val logLevelKey = stringPreferencesKey("logLevel")
 private val traceLogPacksKey = stringPreferencesKey("traceLogPacks")
+private val homeserverHistoryKey = stringPreferencesKey("homeserverHistory")
 private val messageSoundUriKey = stringPreferencesKey("notificationMessageSoundUri")
 private val messageSoundChannelVersionKey = intPreferencesKey("notificationMessageSoundChannelVersion")
 private val messageSoundDisplayNameKey = stringPreferencesKey("notificationMessageSoundDisplayName")
 private val callRingtoneUriKey = stringPreferencesKey("notificationCallRingtoneUri")
 private val callRingtoneChannelVersionKey = intPreferencesKey("notificationCallRingtoneChannelVersion")
 private val callRingtoneDisplayNameKey = stringPreferencesKey("notificationCallRingtoneDisplayName")
+
+// URLs never contain a newline, so it is a safe delimiter to persist an ordered list in a single String.
+private const val HOMESERVER_HISTORY_DELIMITER = "\n"
+private const val MAX_HOMESERVER_HISTORY_SIZE = 20
 
 @ContributesBinding(AppScope::class)
 class DefaultAppPreferencesStore(
@@ -91,6 +99,18 @@ class DefaultAppPreferencesStore(
         }
     }
 
+    override suspend fun setOtherAccountsExpanded(expanded: Boolean) {
+        store.edit { prefs ->
+            prefs[otherAccountsExpandedKey] = expanded
+        }
+    }
+
+    override fun isOtherAccountsExpandedFlow(): Flow<Boolean> {
+        return store.data.map { prefs ->
+            prefs[otherAccountsExpandedKey] ?: true
+        }
+    }
+
     override suspend fun setLiveLocationMinimumDistanceInMetersUpdate(value: Int) {
         store.edit { prefs ->
             prefs[liveLocationMinimumDistanceUpdateKey] = value
@@ -100,6 +120,18 @@ class DefaultAppPreferencesStore(
     override fun getLiveLocationMinimumDistanceInMetersUpdateFlow(): Flow<Int> {
         return store.data.map { prefs ->
             prefs[liveLocationMinimumDistanceUpdateKey] ?: 10
+        }
+    }
+
+    override suspend fun setVoiceTranscriptionEnabled(enabled: Boolean) {
+        store.edit { prefs ->
+            prefs[voiceTranscriptionEnabledKey] = enabled
+        }
+    }
+
+    override fun getVoiceTranscriptionEnabledFlow(): Flow<Boolean> {
+        return store.data.map { prefs ->
+            prefs[voiceTranscriptionEnabledKey] ?: false
         }
     }
 
@@ -165,6 +197,20 @@ class DefaultAppPreferencesStore(
                 ?.mapNotNull { value -> TraceLogPack.entries.find { it.key == value } }
                 ?.toSet()
                 ?: emptySet()
+        }
+    }
+
+    override fun getHomeserverHistoryFlow(): Flow<List<String>> {
+        return store.data.map { prefs -> prefs.readHomeserverHistory() }
+    }
+
+    override suspend fun addHomeserverToHistory(url: String) {
+        val normalized = url.trim().lowercase()
+        if (normalized.isEmpty()) return
+        store.edit { prefs ->
+            val updated = (listOf(normalized) + prefs.readHomeserverHistory().filter { it != normalized })
+                .take(MAX_HOMESERVER_HISTORY_SIZE)
+            prefs[homeserverHistoryKey] = updated.joinToString(HOMESERVER_HISTORY_DELIMITER)
         }
     }
 
@@ -240,6 +286,13 @@ class DefaultAppPreferencesStore(
     override suspend fun reset() {
         store.edit { it.clear() }
     }
+}
+
+private fun Preferences.readHomeserverHistory(): List<String> {
+    return this[homeserverHistoryKey]
+        ?.split(HOMESERVER_HISTORY_DELIMITER)
+        ?.filter { it.isNotEmpty() }
+        ?: emptyList()
 }
 
 private fun BuildMeta.defaultLogLevel(): LogLevel {

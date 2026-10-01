@@ -9,6 +9,7 @@
 package io.element.android.features.messages.impl.timeline.components.event
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
@@ -40,9 +43,11 @@ import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.dp
 import io.element.android.compound.theme.ElementTheme
 import io.element.android.compound.tokens.generated.CompoundIcons
-import io.element.android.features.messages.impl.timeline.components.layout.ContentAvoidingLayoutData
 import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVoiceContent
-import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVoiceContentProvider
+import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVoiceContentPreviewParam
+import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptEvent
+import io.element.android.features.messages.impl.voicemessages.transcript.VoiceTranscriptState
+import io.element.android.features.messages.impl.voicemessages.transcript.aVoiceTranscriptState
 import io.element.android.libraries.designsystem.atomic.atoms.PlaybackSpeedButton
 import io.element.android.libraries.designsystem.components.media.WaveformPlaybackView
 import io.element.android.libraries.designsystem.preview.ElementPreview
@@ -52,11 +57,12 @@ import io.element.android.libraries.designsystem.theme.components.Icon
 import io.element.android.libraries.designsystem.theme.components.IconButton
 import io.element.android.libraries.designsystem.theme.components.Text
 import io.element.android.libraries.matrix.ui.media.contentvalidation.ContentValidationValue
+import io.element.android.libraries.ui.common.layout.ContentAvoidingLayoutData
 import io.element.android.libraries.ui.strings.CommonStrings
 import io.element.android.libraries.ui.utils.a11y.isTalkbackActive
 import io.element.android.libraries.voiceplayer.api.VoiceMessageEvent
 import io.element.android.libraries.voiceplayer.api.VoiceMessageState
-import io.element.android.libraries.voiceplayer.api.VoiceMessageStateProvider
+import io.element.android.libraries.voiceplayer.api.VoiceMessageStatePreviewParam
 import kotlinx.coroutines.delay
 
 @Composable
@@ -66,12 +72,22 @@ fun TimelineItemVoiceView(
     onContentLayoutChange: (ContentAvoidingLayoutData) -> Unit,
     contentValidationValue: ContentValidationValue,
     modifier: Modifier = Modifier,
+    voiceTranscriptState: VoiceTranscriptState? = null,
 ) {
     fun playPause() {
         state.eventSink(VoiceMessageEvent.PlayPause)
     }
 
     val a11y = stringResource(CommonStrings.common_voice_message)
+    val talkbackActive = isTalkbackActive()
+    // Persistent, Telegram-style: starts the transcription and re-runs it once a
+    // transcript exists. Only hidden for TalkBack users (the transcript box offers
+    // a text link instead, since this row clears its children's semantics) and
+    // while no model is available. Disabled while any transcription is running.
+    val showTranscribeButton = voiceTranscriptState != null &&
+        !talkbackActive &&
+        voiceTranscriptState.visible &&
+        voiceTranscriptState.canTranscribe
     val a11yActionLabel = stringResource(
         when (state.buttonType) {
             VoiceMessageState.ButtonType.Play -> CommonStrings.a11y_play
@@ -104,7 +120,7 @@ fun TimelineItemVoiceView(
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (!isTalkbackActive()) {
+        if (!talkbackActive) {
             if (contentValidationValue.isValid()) {
                 when (state.buttonType) {
                     VoiceMessageState.ButtonType.Play -> PlayButton(onClick = ::playPause)
@@ -142,9 +158,26 @@ fun TimelineItemVoiceView(
             modifier = Modifier
                 .weight(1f)
                 .height(34.dp),
-            seekEnabled = !isTalkbackActive(),
+            isPlaying = state.isPlaying,
+            durationMs = state.durationMs,
+            playbackSpeed = state.playbackSpeed,
+            seekEnabled = !talkbackActive,
             onSeek = { state.eventSink(VoiceMessageEvent.Seek(it)) },
         )
+        if (voiceTranscriptState != null && showTranscribeButton) {
+            Spacer(Modifier.width(8.dp))
+            TranscribeButton(
+                // Tapping again once a transcript exists re-runs it with the current model.
+                onClick = {
+                    if (voiceTranscriptState.text != null) {
+                        voiceTranscriptState.eventSink(VoiceTranscriptEvent.Retranscribe)
+                    } else {
+                        voiceTranscriptState.eventSink(VoiceTranscriptEvent.Transcribe)
+                    }
+                },
+                enabled = !voiceTranscriptState.isTranscribing,
+            )
+        }
     }
 }
 
@@ -261,9 +294,45 @@ private fun CustomIconButton(
     )
 }
 
-open class TimelineItemVoiceViewParametersProvider : PreviewParameterProvider<TimelineItemVoiceViewParameters> {
-    private val voiceMessageStateProvider = VoiceMessageStateProvider()
-    private val timelineItemVoiceContentProvider = TimelineItemVoiceContentProvider()
+/**
+ * Telegram-style speech-to-text affordance rendered at the end of the player row.
+ * Mirrors [PlaybackSpeedButton]'s pill style so it blends into the player and
+ * follows theme changes. Starts the transcription; the resulting text is shown
+ * by [VoiceTranscriptBox] between the player and the timestamp, progress and
+ * attribution in the timestamp row. Disabled while another transcription runs.
+ */
+@Composable
+private fun TranscribeButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    val contentColor = if (enabled) ElementTheme.colors.iconSecondary else ElementTheme.colors.iconDisabled
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(color = ElementTheme.colors.bgCanvasDefault)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Icon(
+            imageVector = CompoundIcons.ArrowRight(),
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(12.dp),
+        )
+        Text(
+            text = "A",
+            style = ElementTheme.typography.fontBodyXsMedium,
+            color = contentColor,
+        )
+    }
+}
+
+open class TimelineItemVoiceViewParametersPreviewParam : PreviewParameterProvider<TimelineItemVoiceViewParameters> {
+    private val voiceMessageStateProvider = VoiceMessageStatePreviewParam()
+    private val timelineItemVoiceContentProvider = TimelineItemVoiceContentPreviewParam()
     override val values: Sequence<TimelineItemVoiceViewParameters>
         get() = timelineItemVoiceContentProvider.values.flatMap { content ->
             voiceMessageStateProvider.values.map { state ->
@@ -283,7 +352,7 @@ data class TimelineItemVoiceViewParameters(
 @PreviewsDayNight
 @Composable
 internal fun TimelineItemVoiceViewPreview(
-    @PreviewParameter(TimelineItemVoiceViewParametersProvider::class) timelineItemVoiceViewParameters: TimelineItemVoiceViewParameters,
+    @PreviewParameter(TimelineItemVoiceViewParametersPreviewParam::class) timelineItemVoiceViewParameters: TimelineItemVoiceViewParameters,
 ) = ElementPreview {
     TimelineItemVoiceView(
         state = timelineItemVoiceViewParameters.state,
@@ -296,7 +365,7 @@ internal fun TimelineItemVoiceViewPreview(
 @PreviewsDayNight
 @Composable
 internal fun TimelineItemVoiceViewUnifiedPreview() = ElementPreview {
-    val timelineItemVoiceViewParametersProvider = TimelineItemVoiceViewParametersProvider()
+    val timelineItemVoiceViewParametersProvider = TimelineItemVoiceViewParametersPreviewParam()
     Column {
         timelineItemVoiceViewParametersProvider.values.forEach {
             TimelineItemVoiceView(
@@ -316,4 +385,16 @@ internal fun ProgressButtonPreview() = ElementPreview {
         ProgressButton(displayImmediately = true)
         ProgressButton(displayImmediately = false)
     }
+}
+
+@PreviewsDayNight
+@Composable
+internal fun TimelineItemVoiceViewWithTranscribeButtonPreview() = ElementPreview {
+    TimelineItemVoiceView(
+        state = aVoiceMessageState(),
+        content = TimelineItemVoiceContentProvider().values.first(),
+        onContentLayoutChange = {},
+        contentValidationValue = ContentValidationValue.Valid,
+        voiceTranscriptState = aVoiceTranscriptState(),
+    )
 }
